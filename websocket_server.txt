@@ -1,0 +1,88 @@
+import asyncio
+from fastapi import FastAPI, WebSocket
+from opcua import Client, ua
+import time
+import threading
+
+URL = "opc.tcp://192.168.18.60:4840"
+USER = "psi_opc"
+PASSWORD = "Saipem_2025_opc"
+
+# Buffer circular global
+BUFFER_SIZE = 100
+data_buffer = []
+
+def read_value(node):
+    try:
+        val_node = node.get_child(["2:Value"])
+        return val_node.get_value()
+    except Exception:
+        return node.get_value()
+
+def children_all(node):
+    refs = [
+        ua.ObjectIds.HasComponent,
+        ua.ObjectIds.Organizes,
+        ua.ObjectIds.HasProperty
+    ]
+    kids = []
+    for r in refs:
+        kids += node.get_children(
+            refs=r,
+            nodeclassmask=ua.NodeClass.Variable | ua.NodeClass.Object
+        )
+    uniq = {k.nodeid.to_string(): k for k in kids}
+    return node.get_children()
+
+def browse_by_names(root, *names):
+    cur = root
+    for n in names:
+        for ch in children_all(cur):
+            if ch.get_browse_name().Name == n:
+                cur = ch
+                break
+        else:
+            raise RuntimeError(f"No se encontró '{n}' bajo {cur.nodeid}")
+    return cur
+
+def plc_reader():
+    cli = Client(URL, timeout=2)
+    cli.set_user(USER)
+    cli.set_password(PASSWORD)
+    cli.connect()
+    try:
+        root = cli.get_root_node()
+        plc_prg = browse_by_names(
+            root, "Objects", "Datalayer", "plc", "app", "Application", "sym", "PLC_PRG"
+        )
+        while True:
+            vars = {}
+            for ch in plc_prg.get_children():
+                name = ch.get_browse_name().Name
+                try:
+                    vars[name] = read_value(ch)
+                except Exception as e:
+                    vars[name] = f"⛔ {e}"
+            vars["timestamp"] = time.time()
+            if len(data_buffer) >= BUFFER_SIZE:
+                data_buffer.pop(0)
+            data_buffer.append(vars)
+            time.sleep(0.02)  # 20ms ~ 50Hz, AJUSTA según tu ciclo de PLC
+    finally:
+        cli.disconnect()
+
+# Lanza la lectura en un hilo aparte
+threading.Thread(target=plc_reader, daemon=True).start()
+
+app = FastAPI()
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    try:
+        while True:
+            if data_buffer:  # Solo si hay algo en el buffer
+                await websocket.send_json([data_buffer[-1]])  # Siempre manda el último (como array para tu frontend)
+            await asyncio.sleep(0.1)  # ajusta frecuencia de refresco
+    except Exception as e:
+        print("Cliente desconectado o error:", e)
