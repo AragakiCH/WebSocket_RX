@@ -39,7 +39,7 @@ async def websocket_write_endpoint(websocket: WebSocket):
                     elif isinstance(value, float):
                         ch.set_value(value, ua.VariantType.Float)
                     elif isinstance(value, int):
-                        ch.set_value(value, ua.VariantType.Int32)
+                        ch.set_value(value, ua.VariantType.Int16)
                     else:
                         await websocket.send_json({"status": "error", "msg": "Tipo de valor no soportado"})
                         break
