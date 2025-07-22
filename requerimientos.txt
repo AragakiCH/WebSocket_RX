@@ -1,0 +1,6 @@
+python3 -m pip install fastapi
+python3 -m pip install uvicorn
+python3 -m pip install opcua
+
+pip install fastapi uvicorn websockets opcua python-dateutil pytz lxml colorama six typing_extensions typing_inspection sniffio anyio starlette click
+python3 -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload

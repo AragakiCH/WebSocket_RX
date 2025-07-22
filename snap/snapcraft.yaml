@@ -1,0 +1,37 @@
+name: api-websocket-rx
+base: core22
+version: '1.0.0'
+summary: WebSocket API para ctrlX CORE
+description: |
+  API con WebSocket y FastAPI para conectarse al PLC vía OPC UA.
+
+grade: stable
+confinement: strict
+
+apps:
+  websocket-api:
+    command: bin/websocket-wrapper.sh
+    daemon: simple
+    restart-condition: always
+    plugs: [network, network-bind]
+
+parts:
+  websocket-api:
+    plugin: python
+    source: .
+    python-packages:
+      - fastapi
+      - uvicorn
+      - websockets
+      - opcua
+      - python-dateutil
+      - pytz
+      - lxml
+      - colorama
+      - six
+      - typing_extensions
+      - typing_inspection
+      - sniffio
+      - anyio
+      - starlette
+      - click
