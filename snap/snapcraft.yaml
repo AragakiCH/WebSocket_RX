@@ -10,7 +10,7 @@ confinement: strict
 
 apps:
   websocket-api:
-    command: bin/websocket-wrapper.sh
+    command: ../bin/websocket-wrapper.sh
     daemon: simple
     restart-condition: always
     plugs: [network, network-bind]
@@ -36,7 +36,7 @@ parts:
       - starlette
       - click
     stage:
-      - bin/websocket-wrapper.sh
+      - ../bin/websocket-wrapper.sh
     override-build: |
       snapcraftctl build
       chmod +x $SNAPCRAFT_PART_INSTALL/bin/websocket-wrapper.sh
