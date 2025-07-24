@@ -36,7 +36,9 @@ parts:
       - starlette
       - click
     stage:
-      - bin/websocket-wrapper.sh
-    override-build: |
-      snapcraftctl build
-      chmod +x $SNAPCRAFT_PART_INSTALL/bin/websocket-wrapper.sh
+      - bin/websocket-wrapper.sh    # <-- Esto ya lo tienes, pero...
+    install:
+      # Copia explícitamente el archivo a $SNAPCRAFT_PART_INSTALL/bin
+      - mkdir -p $SNAPCRAFT_PART_INSTALL/bin
+      - cp bin/websocket-wrapper.sh $SNAPCRAFT_PART_INSTALL/bin/
+      - chmod +x $SNAPCRAFT_PART_INSTALL/bin/websocket-wrapper.sh
