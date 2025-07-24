@@ -35,3 +35,5 @@ parts:
       - anyio
       - starlette
       - click
+    stage:
+      - bin/websocket-wrapper.sh
