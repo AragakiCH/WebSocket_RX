@@ -3,8 +3,7 @@ base: core22
 version: '1.0.0'
 summary: WebSocket API para ctrlX CORE
 description: |
-  API con WebSocket y FastAPI para conectarse al PLC vía OPC UA
-  y servir una UI WebSocket demo desde la misma aplicación.
+  API con WebSocket y FastAPI para conectarse al PLC vía OPC UA.
 
 grade: stable
 confinement: strict
@@ -32,12 +31,12 @@ parts:
       - anyio
       - starlette
       - click
-    # Stageamos TODO el contenido de frontend/ junto al código
+      
     stage:
       - frontend/**
+      - bin/websocket-wrapper.sh
     override-build: |
       snapcraftctl build
-      # Copiamos el wrapper
       mkdir -p $SNAPCRAFT_PART_INSTALL/bin
       cp bin/websocket-wrapper.sh $SNAPCRAFT_PART_INSTALL/bin/
       chmod +x $SNAPCRAFT_PART_INSTALL/bin/websocket-wrapper.sh
