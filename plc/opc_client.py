@@ -40,7 +40,9 @@ class PLCReader:
                     cur = ch
                     break
             else:
-                raise RuntimeError(f"No se encontró '{n}' bajo {cur.nodeid}")
+                # ← aquí ya no se lanza excepción, solo se imprime
+                print("Por favor publique un proyecto desde la configuración de símbolos")
+                return None
         return cur
 
     def plc_reader(self):
@@ -51,8 +53,13 @@ class PLCReader:
         try:
             root = cli.get_root_node()
             plc_prg = self.browse_by_names(
-                root, "Objects", "Datalayer", "plc", "app", "Application", "sym", "PLC_PRG"
+                root, "Objects", "Datalayer", "plc", "app",
+                "Application", "sym", "PLC_PRG"
             )
+            if plc_prg is None:
+                print("Por favor publique un proyecto desde la configuración de símbolos")
+                return
+
             while True:
                 vars = {}
                 for ch in plc_prg.get_children():
@@ -62,10 +69,13 @@ class PLCReader:
                     except Exception as e:
                         vars[name] = f"⛔ {e}"
                 vars["timestamp"] = time.time()
+
                 if len(self.buffer) >= self.buffer_size:
                     self.buffer.pop(0)
                 self.buffer.append(vars)
+
                 time.sleep(0.02)
+
         finally:
             cli.disconnect()
 
