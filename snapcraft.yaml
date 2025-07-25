@@ -1,6 +1,6 @@
 name: api-websocket-rx
 base: core22
-version: '1.0.0'
+version: '1.0.1'
 summary: WebSocket API para ctrlX CORE
 description: |
   API con WebSocket y FastAPI para conectarse al PLC vía OPC UA.
@@ -8,12 +8,8 @@ description: |
 grade: stable
 confinement: strict
 
-apps:
-  websocket-api:
-    command: bin/websocket-wrapper.sh
-    daemon: simple
-    restart-condition: always
-    plugs: [network, network-bind]
+architectures:
+  - arm64
 
 parts:
   websocket-api:
@@ -21,7 +17,7 @@ parts:
     source: .
     python-packages:
       - fastapi
-      - uvicorn
+      - uvicorn[standard]
       - websockets
       - opcua
       - python-dateutil
@@ -30,15 +26,21 @@ parts:
       - colorama
       - six
       - typing_extensions
-      - typing_inspection
       - sniffio
       - anyio
       - starlette
       - click
-    stage:
-      - bin/websocket-wrapper.sh    # <-- Esto ya lo tienes, pero...
-    install:
-      # Copia explícitamente el archivo a $SNAPCRAFT_PART_INSTALL/bin
-      - mkdir -p $SNAPCRAFT_PART_INSTALL/bin
-      - cp bin/websocket-wrapper.sh $SNAPCRAFT_PART_INSTALL/bin/
-      - chmod +x $SNAPCRAFT_PART_INSTALL/bin/websocket-wrapper.sh
+    override-build: |
+      snapcraftctl build
+      mkdir -p $SNAPCRAFT_PART_INSTALL/bin
+      cp bin/websocket-wrapper.sh $SNAPCRAFT_PART_INSTALL/bin/
+      chmod +x $SNAPCRAFT_PART_INSTALL/bin/websocket-wrapper.sh
+
+apps:
+  websocket-api:
+    command: bin/websocket-wrapper.sh
+    daemon: simple
+    restart-condition: always
+    plugs:
+      - network
+      - network-bind
