@@ -3,12 +3,13 @@ import threading
 import time
 
 class PLCReader:
-    def __init__(self, url, user, password, buffer, buffer_size=100):
+    def __init__(self, url, user, password, buffer, buffer_size=100, on_sample=None):
         self.url = url
         self.user = user
         self.password = password
         self.buffer = buffer
         self.buffer_size = buffer_size
+        self.on_sample = on_sample
 
     def read_value(self, node):
         try:
@@ -46,6 +47,23 @@ class PLCReader:
         return cur
 
     def plc_reader(self):
+        # Diccionario para traducir tipos OPC UA a nombres PLC comunes
+        type_name_map = {
+            "Boolean": "BOOL",
+            "SByte": "SINT",
+            "Byte": "BYTE",
+            "Int16": "INT",
+            "UInt16": "UINT",
+            "Int32": "DINT",
+            "UInt32": "UDINT",
+            "Int64": "LINT",
+            "UInt64": "ULINT",
+            "Float": "REAL",
+            "Double": "LREAL",
+            "String": "STRING",
+            # Agrega más si tu PLC maneja otros tipos (DateTime, Guid, etc)
+        }
+
         cli = Client(self.url, timeout=2)
         cli.set_user(self.user)
         cli.set_password(self.password)
@@ -61,21 +79,38 @@ class PLCReader:
                 return
 
             while True:
-                vars = {}
+                vars_by_type = {}
                 for ch in plc_prg.get_children():
                     name = ch.get_browse_name().Name
                     try:
-                        vars[name] = self.read_value(ch)
+                        val = self.read_value(ch)
+                        data_type = ch.get_data_type_as_variant_type()
+                        type_name = ua.VariantType(data_type).name
+                        plc_type_name = type_name_map.get(type_name, type_name)  # Si no está mapeado, usa el nombre OPC UA
+
+                        if plc_type_name not in vars_by_type:
+                            vars_by_type[plc_type_name] = {}
+                        vars_by_type[plc_type_name][name] = val
+
                     except Exception as e:
-                        vars[name] = f"⛔ {e}"
-                vars["timestamp"] = time.time()
+                        if "Error" not in vars_by_type:
+                            vars_by_type["Error"] = {}
+                        vars_by_type["Error"][name] = f"⛔ {e}"
+
+                vars_by_type["timestamp"] = time.time()
 
                 if len(self.buffer) >= self.buffer_size:
                     self.buffer.pop(0)
-                self.buffer.append(vars)
+                self.buffer.append(vars_by_type)
+
+                if self.on_sample:
+                    try:
+                        self.on_sample(dict(vars_by_type))  # copia superficial
+                    except Exception as e:
+                        # no frenes el hilo por el logger
+                        print(f"[Excel log warn] {e}")
 
                 time.sleep(0.02)
-
         finally:
             cli.disconnect()
 

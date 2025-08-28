@@ -5,9 +5,9 @@ from plc.opc_client import PLCReader  # Usa el mismo browse_by_names, etc.
 
 # Debes reutilizar los mismos datos de conexión de main.py, así que puedes importarlos, o pasarlos como parámetro si lo refactorizas más
 
-URL = "opc.tcp://192.168.18.60:4840"
-USER = "psi_opc"
-PASSWORD = "Saipem_2025_opc"
+URL = "opc.tcp://192.168.18.32:4840"
+USER = "boschrexroth"
+PASSWORD = "boschrexroth"
 
 async def websocket_write_endpoint(websocket: WebSocket):
     await websocket.accept()
