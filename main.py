@@ -2,7 +2,12 @@ from fastapi import FastAPI, WebSocket
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 import queue
-from utils.excel_logger import ExcelLogger
+
+try:
+    from utils.excel_logger import ExcelLogger
+except ImportError:
+    ExcelLogger = None
+
 
 from ws.ws_endpoint import websocket_endpoint
 from ws.ws_write_endpoint import websocket_write_endpoint
@@ -30,13 +35,17 @@ app.add_middleware(
 )
 
 # crea y arranca el logger (antes de iniciar el PLCReader)
-excel_logger = ExcelLogger(
-    q=log_queue,
-    path_template="logs/ws_{date}.xlsx",
-    flush_every=20,
-    flush_interval=0.5
-)
-excel_logger.start()
+excel_logger = None
+if ExcelLogger:
+    excel_logger = ExcelLogger(
+        q=log_queue,
+        path_template="logs/ws_{date}.xlsx",
+        flush_every=20,
+        flush_interval=0.5,
+    )
+    excel_logger.start()
+
+
 
 
 def push_to_log(sample: dict):
