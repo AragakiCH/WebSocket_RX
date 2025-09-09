@@ -3,6 +3,10 @@ import sys, os, socket, time
 from pathlib import Path
 from PyQt6.QtCore import QProcess, QProcessEnvironment
 from PyQt6.QtGui import QIcon
+from PyQt6.QtWebSockets import QWebSocket
+from PyQt6.QtCore import QObject, pyqtSignal, QUrl, QTimer
+import json
+import traceback
 
 from PyQt6.QtWidgets import (
     QApplication, QMessageBox, QMainWindow, QLabel, QWidget, QFrame,
@@ -18,12 +22,11 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from main import app as fastapi_app
-
 
 
 HOST = os.getenv("WS_HOST", "127.0.0.1")
-PORT = int(os.getenv("WS_PORT", "8000"))
+PORT = int(os.getenv("WS_PORT", "8010"))
+WS_PATH = os.getenv("WS_PATH", "/ws")
 
 def is_port_open(host: str, port: int) -> bool:
     try:
@@ -162,6 +165,70 @@ def build_styles() -> str:
     }
     """
 
+class WSClient(QObject):
+    data_received = pyqtSignal(dict)
+    status_changed = pyqtSignal(str)
+
+    def __init__(self, url: str, parent=None):
+        super().__init__(parent)
+        self.url = url
+        self.sock = QWebSocket()
+        self.sock.connected.connect(self._on_connected)
+        self.sock.disconnected.connect(self._on_disconnected)
+        self.sock.textMessageReceived.connect(self._on_text)
+        self.sock.binaryMessageReceived.connect(self._on_bin)
+        self.sock.errorOccurred.connect(self._on_error)
+
+        self._backoff_ms = 500
+        self._reconnect_timer = QTimer(self)
+        self._reconnect_timer.setSingleShot(True)
+        self._reconnect_timer.timeout.connect(self.connect)
+
+    def connect(self):
+        self.status_changed.emit(f"connecting → {self.url}")
+        self.sock.open(QUrl(self.url))
+
+    def close(self):
+        self._reconnect_timer.stop()
+        self.sock.close()
+
+    def _on_connected(self):
+        self.status_changed.emit("open")
+
+    def _on_disconnected(self):
+        self.status_changed.emit("closed")
+        self._reconnect_timer.start(self._backoff_ms)
+        self._backoff_ms = min(self._backoff_ms * 2, 5000)
+
+    def _on_error(self, err):
+        self.status_changed.emit(f"error: {self.sock.errorString()}")
+
+    def _deliver(self, payload):
+        # espera lista o dict; si lista, toma el último snapshot
+        if isinstance(payload, list) and payload:
+            snap = payload[-1]
+        elif isinstance(payload, dict):
+            snap = payload
+        else:
+            return
+        self.data_received.emit(snap)
+        self._backoff_ms = 500
+
+    def _on_text(self, msg: str):
+        try:
+            self._deliver(json.loads(msg))
+        except Exception:
+            self.status_changed.emit(f"error: json(text)")
+            traceback.print_exc()
+
+    def _on_bin(self, data: bytes):
+        try:
+            self._deliver(json.loads(data.decode("utf-8", errors="ignore")))
+        except Exception:
+            self.status_changed.emit(f"error: json(bin)")
+            traceback.print_exc()
+
+
 class StatCard(QFrame):
     def __init__(self, title: str, value: str, parent=None):
         super().__init__(parent)
@@ -170,9 +237,9 @@ class StatCard(QFrame):
         self.setFixedHeight(100)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(16, 14, 16, 14)
-        t = QLabel(title); t.setObjectName("CardTitle"); t.setProperty("class", "CardTitle")
-        v = QLabel(value); v.setObjectName("CardValue"); v.setProperty("class", "CardValue")
-        lay.addWidget(t); lay.addStretch(1); lay.addWidget(v)
+        self.t = QLabel(title); self.t.setObjectName("CardTitle"); self.t.setProperty("class", "CardTitle")
+        self.v = QLabel(value); self.v.setObjectName("CardValue"); self.v.setProperty("class", "CardValue")
+        lay.addWidget(self.t); lay.addStretch(1); lay.addWidget(self.v)
 
 def make_dummy_model() -> QStandardItemModel:
     model = QStandardItemModel()
@@ -191,6 +258,25 @@ def make_dummy_model() -> QStandardItemModel:
         model.appendRow([QStandardItem(c) for c in r])
     return model
 
+
+def flatten_snapshot(snap: dict) -> dict:
+    out = {}
+    for k, v in snap.items():
+        if isinstance(v, dict):
+            for sk, sv in v.items():
+                out[f"{k}.{sk}"] = sv
+        else:
+            out[k] = v
+    return out
+
+_UNITS = {
+    "REAL.vib_rms":"mm/s","REAL.vib_mean":"mm/s","REAL.vib_peak":"mm/s",
+    "REAL.vib_crest":"","REAL.vib_g":"g","REAL.temp_C":"°C","REAL.pres_mA":"mA",
+    "REAL.pres_lp":"bar","REAL.volt_V":"V","REAL.volt_lp":"V","REAL.volt_slope":"V/s",
+}
+def unit_for(tag: str) -> str:
+    return _UNITS.get(tag, "")
+
 # ========== Reemplaza tu clase MainWindow por esta ==========
 class MainWindow(QMainWindow):
     def __init__(self, server_proc, project_root: Path):
@@ -201,6 +287,21 @@ class MainWindow(QMainWindow):
         self.resize(1200, 800)
         self.setMinimumSize(1000, 680)
         self.setStyleSheet(build_styles())
+
+        # ====== WebSocket Client ======
+        ws_url = f"ws://{HOST}:{PORT}{WS_PATH}"
+        self.ws_client = WSClient(ws_url, self)
+        self.ws_client.data_received.connect(self._on_snapshot)
+        self.ws_client.status_changed.connect(self._on_ws_status)
+        self.ws_client.connect()
+
+        self._row_cap = 500
+        self._samples_today = 0
+        self._temp_avg = 0.0
+        self._temp_n = 0
+
+        # deja trazas claras en la barra de estado
+        self.statusBar().showMessage(f"WS → {ws_url}")
 
         # --- CENTRO ---
         root = QWidget(self)
@@ -264,11 +365,15 @@ class MainWindow(QMainWindow):
         # --- Cards métricas ---
         cards = QWidget()
         cards_lay = QHBoxLayout(cards); cards_lay.setSpacing(12); cards_lay.setContentsMargins(0,0,0,0)
-        card1 = StatCard("Muestras (hoy)", "12,487")
-        card2 = StatCard("Alarmas activas", "3")
-        card3 = StatCard("Prom. Temperatura", "38.6 °C")
-        card4 = StatCard("Última actualización", "hace 2 s")
+        card1 = StatCard("Muestras (hoy)", "0")
+        card2 = StatCard("Alarmas activas", "0")
+        card3 = StatCard("Prom. Temperatura", "—")
+        card4 = StatCard("Última actualización", "—")
         cards_lay.addWidget(card1); cards_lay.addWidget(card2); cards_lay.addWidget(card3); cards_lay.addWidget(card4)
+
+        # <-- agrega esto:
+        self._cards = {"samples": card1, "alarms": card2, "temp": card3, "last": card4}
+
 
         # --- Filtros ---
         filters = QWidget()
@@ -299,8 +404,12 @@ class MainWindow(QMainWindow):
         table.setShowGrid(False)
         table.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
         table.setSelectionMode(QTableView.SelectionMode.SingleSelection)
-        table.setModel(make_dummy_model())
-        table.horizontalHeader().setDefaultSectionSize(170)
+        self._model = QStandardItemModel()
+        self._cells_by_tag = {}
+        self._row_cap = 10000 
+        self._model.setHorizontalHeaderLabels(["Timestamp", "Tag", "Valor", "Unidad", "Grupo"])
+        table.setModel(self._model)
+        table.horizontalHeader().resizeSection(2, 120)
         table.horizontalHeader().setHighlightSections(False)
         table.setMinimumHeight(400)
 
@@ -338,10 +447,91 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, "Exportar a Excel",
                                 "Esta acción exportará la tabla a Excel.\n\n"
                                 "La UI ya está, el funcionamiento lo cableamos luego 😉")
+        
+    def _on_ws_status(self, status: str):
+        self.statusBar().showMessage(f"WS {status}")
+
+    def _append_row(self, ts_str: str, tag: str, val: str, unit: str, group: str):
+        row = [
+            QStandardItem(ts_str),
+            QStandardItem(tag.split('.',1)[-1]),
+            QStandardItem(val),
+            QStandardItem(unit),
+            QStandardItem(group.split('.',1)[0] if '.' in group else group),
+        ]
+        self._model.appendRow(row)
+        if self._model.rowCount() > self._row_cap:
+            self._model.removeRow(0)
+
+    def _upsert_row(self, ts_str: str, tag: str, val: str, unit: str, group: str):
+        """
+        Mantiene una sola fila por variable (p.ej. REAL.vib_rms).
+        Si existe, solo refresca Timestamp y Valor (y Unidad si cambiara).
+        """
+        rec = self._cells_by_tag.get(tag)
+        if rec is None:
+            it_ts   = QStandardItem(ts_str)
+            it_tag  = QStandardItem(tag.split('.', 1)[-1])                 # muestra solo el subtag
+            it_val  = QStandardItem(val)
+            it_unit = QStandardItem(unit)
+            it_grp  = QStandardItem(group.split('.', 1)[0] if '.' in group else group)
+
+            # opcional: alinear valores a la derecha
+            it_val.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+
+            self._model.appendRow([it_ts, it_tag, it_val, it_unit, it_grp])
+            self._cells_by_tag[tag] = (it_ts, it_tag, it_val, it_unit, it_grp)
+
+            # si activas ordenamiento:
+            # self._widgets["table"].sortByColumn(1, Qt.SortOrder.AscendingOrder)
+        else:
+            it_ts, it_tag, it_val, it_unit, it_grp = rec
+            it_ts.setText(ts_str)
+            if it_val.text() != val:
+                it_val.setText(val)
+            if unit and it_unit.text() != unit:
+                it_unit.setText(unit)
+
+
+    def _on_snapshot(self, snap: dict):
+        print("📥 snapshot:", json.dumps(snap)[:240], flush=True)
+        flat = flatten_snapshot(snap)
+        ts = flat.get("timestamp")
+        from datetime import datetime
+        ts_str = datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S") if isinstance(ts,(int,float)) else datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        for k, v in flat.items():
+            if k == "timestamp":
+                continue
+            if not any(k.startswith(p) for p in ("REAL.", "INT.", "LREAL.", "BOOL.")):
+                continue
+
+            if isinstance(v, float):
+                val_str = f"{v:.6f}".rstrip('0').rstrip('.')
+            else:
+                val_str = str(v)
+
+            self._upsert_row(ts_str, k, val_str, unit_for(k), k)
+
+        # cards
+        self._samples_today += 1
+        self._cards["samples"].v.setText(f"{self._samples_today:,}".replace(",", "."))
+        vib_rms = flat.get("REAL.vib_rms", 0.0)
+        window_ready = flat.get("BOOL.window_ready", True)
+        alarms = 1 if (not window_ready and isinstance(vib_rms,(int,float)) and vib_rms > 0.5) else 0
+        self._cards["alarms"].v.setText(str(alarms))
+        temp = flat.get("REAL.temp_C")
+        if isinstance(temp,(int,float)):
+            self._temp_n += 1
+            self._temp_avg = ((self._temp_avg*(self._temp_n-1))+temp)/self._temp_n
+            self._cards["temp"].v.setText(f"{self._temp_avg:.1f} °C")
+        self._cards["last"].v.setText("ahora")
+        self.statusBar().showMessage(f"WS open · último: {ts_str}")
 
     def closeEvent(self, e):
-        # NO toques: apaga el server cuando cierres
         try:
+            if hasattr(self, "ws_client") and self.ws_client:
+                self.ws_client.close()
             if self.server_proc and self.server_proc.state() != QProcess.ProcessState.NotRunning:
                 self.server_proc.terminate()
                 if not self.server_proc.waitForFinished(1500):
