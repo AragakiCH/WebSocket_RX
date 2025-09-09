@@ -9,7 +9,7 @@ import pandas as pd
 from fastapi import FastAPI, WebSocket
 
 # ===== OPC UA =====
-OPCUA_URL     = "opc.tcp://192.168.18.32:4840"
+OPCUA_URL     = "opc.tcp://192.168.18.6:4840"
 OPCUA_USER    = "boschrexroth"
 OPCUA_PASS    = "boschrexroth"
 USE_SECURITY  = False  # True si luego configuras certificados y endpoint seguro

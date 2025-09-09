@@ -7,6 +7,7 @@ from PyQt6.QtCore import QObject, pyqtSignal, QUrl, QTimer
 import json
 import traceback
 
+
 from PyQt6.QtWidgets import (
     QApplication, QMessageBox, QMainWindow, QLabel, QWidget, QFrame,
     QHBoxLayout, QVBoxLayout, QLineEdit, QPushButton, QComboBox,
@@ -16,14 +17,15 @@ from PyQt6.QtCore import Qt, QDate, QSize
 from PyQt6.QtGui import QIcon, QStandardItemModel, QStandardItem
 
 # al inicio de tu app_desktop_threaded.py
-from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from .login import LoginDialog
+
 
 HOST = os.getenv("WS_HOST", "127.0.0.1")
-PORT = int(os.getenv("WS_PORT", "8010"))
+PORT = int(os.getenv("WS_PORT", "8090"))
 WS_PATH = os.getenv("WS_PATH", "/ws")
 
 def is_port_open(host: str, port: int) -> bool:
@@ -62,106 +64,7 @@ def start_ws_server(project_root: Path, module_str: str) -> QProcess:
     return proc
 
 # ---------- helpers de UI ----------
-def build_styles() -> str:
-    return """
-    QMainWindow {
-        background: #0F172A; /* slate-900 */
-    }
-    QLabel, QLineEdit, QComboBox, QDateEdit, QHeaderView::section {
-        color: #E2E8F0; /* slate-200 */
-        font-size: 14px;
-    }
-    /* Sidebar */
-    QFrame#Sidebar {
-        background: #0B1220; /* slightly darker */
-        border-right: 1px solid #1F2937;
-    }
-    QPushButton#Nav {
-        color: #CBD5E1;
-        text-align: left;
-        padding: 10px 14px;
-        border: none;
-        border-radius: 8px;
-        background: transparent;
-    }
-    QPushButton#Nav:hover {
-        background: #111827;
-        color: #FFFFFF;
-    }
-    QPushButton#Nav[current="true"] {
-        background: #1F2937;
-        color: #FFFFFF;
-        font-weight: 600;
-    }
 
-    /* Top actions */
-    QPushButton#Primary {
-        background: #3B82F6; /* blue-500 */
-        color: white;
-        border: none;
-        border-radius: 10px;
-        padding: 10px 16px;
-        font-weight: 600;
-    }
-    QPushButton#Primary:hover {
-        background: #2563EB; /* blue-600 */
-    }
-    QPushButton#Ghost {
-        background: transparent;
-        color: #93C5FD;
-        border: 1px solid #1F2937;
-        border-radius: 10px;
-        padding: 8px 12px;
-    }
-    QPushButton#Ghost:hover {
-        background: #111827;
-    }
-
-    /* Cards */
-    QFrame.Card {
-        background: #111827;
-        border: 1px solid #1F2937;
-        border-radius: 16px;
-    }
-    QLabel.CardTitle {
-        color: #94A3B8; /* slate-400 */
-        font-size: 12px;
-        letter-spacing: 0.5px;
-    }
-    QLabel.CardValue {
-        color: #F8FAFC;
-        font-size: 24px;
-        font-weight: 700;
-    }
-
-    /* Inputs */
-    QLineEdit, QComboBox, QDateEdit {
-        background: #0B1220;
-        border: 1px solid #1F2937;
-        border-radius: 10px;
-        padding: 8px 10px;
-        selection-background-color: #3B82F6;
-    }
-
-    /* Tabla */
-    QTableView {
-        background: #0B1220;
-        color: #E5E7EB;
-        gridline-color: #1F2937;
-        border: 1px solid #1F2937;
-        border-radius: 14px;
-        selection-background-color: #1D4ED8;
-        selection-color: white;
-        alternate-background-color: #0F172A;
-    }
-    QHeaderView::section {
-        background: #111827;
-        color: #E5E7EB;
-        border: none;
-        padding: 10px;
-        font-weight: 600;
-    }
-    """
 
 class WSClient(QObject):
     data_received = pyqtSignal(dict)
@@ -284,7 +187,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("LEXI 1.0 — Panel de Datos")
         self.resize(1200, 800)
         self.setMinimumSize(1000, 680)
-        self.setStyleSheet(build_styles())
+        #self.setStyleSheet(build_styles())
 
         # ====== WebSocket Client ======
         ws_url = f"ws://{HOST}:{PORT}{WS_PATH}"
@@ -537,15 +440,13 @@ class MainWindow(QMainWindow):
         finally:
             super().closeEvent(e)
 # ========== fin MainWindow ==========
-def main():
+def main(after_user: str | None = None):
     here = Path(__file__).resolve().parent
-    project_root = here.parent   # tú estás en .../WEBSOCKET_RX/frontend → raíz = padre
+    project_root = here.parent
 
     # Detecta layout y arma el import-string correcto
-    # Caso 1: main.py en la raíz (TU CASO)
     if (project_root / "main.py").exists():
         module_str = "main:app"
-    # Caso 2: si algún día lo mueves a un paquete WebSocket_RX/main.py
     elif (project_root / "WebSocket_RX" / "main.py").exists():
         module_str = "WebSocket_RX.main:app"
     else:
@@ -553,7 +454,6 @@ def main():
                              f"No encuentro main.py en {project_root} ni WebSocket_RX/main.py")
         sys.exit(1)
 
-    # Crea logs/ si tu backend los usa
     (project_root / "logs").mkdir(parents=True, exist_ok=True)
 
     # Arranca el WS
@@ -563,13 +463,42 @@ def main():
         QMessageBox.critical(None, "Error WebSocket", f"No se pudo iniciar el servidor:\n{e}")
         sys.exit(1)
 
-    # Ventana
+    # Ventana principal (dashboard)
     win = MainWindow(server_proc, project_root)
+    if after_user:
+        win.statusBar().showMessage(f"Bienvenido, {after_user} · WS listo en http://{HOST}:{PORT}")
     win.resize(1000, 700)
     win.show()
     return win
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    win = main()
-    sys.exit(app.exec())
+
+    # Rutas
+    here = Path(__file__).resolve().parent
+    project_root = here.parent
+    qss_app   = project_root / "frontend" / "styles" / "app.qss"
+    qss_login = project_root / "frontend" / "styles" / "login.qss"
+
+    # Cargar y unir estilos (primero dashboard, luego login; lo último gana)
+    css_parts = []
+    for path in (qss_app, qss_login):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                css_parts.append(f.read())
+        except Exception as e:
+            print(f"[WARN] No se pudo cargar stylesheet {path}: {e}")
+
+    if css_parts:
+        app.setStyleSheet("\n\n".join(css_parts))
+
+    # ======= Primero mostrar login =======
+    from frontend.login import LoginDialog  # asegúrate de tener este import
+    login = LoginDialog()
+    if login.exec() == LoginDialog.DialogCode.Accepted:
+        user = "rexroth"  # (o toma el 'u' emitido por el dialog si lo quieres dinámico)
+        win = main(after_user=user)
+        sys.exit(app.exec())
+    else:
+        sys.exit(0)
+
