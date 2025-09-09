@@ -1,4 +1,3 @@
-# frontend/app_desktop.py
 import sys, os, socket, time
 from pathlib import Path
 from PyQt6.QtCore import QProcess, QProcessEnvironment
@@ -19,7 +18,6 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from main import app as fastapi_app
-
 
 
 HOST = os.getenv("WS_HOST", "127.0.0.1")
