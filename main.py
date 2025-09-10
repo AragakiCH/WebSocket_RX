@@ -13,7 +13,10 @@ from ws.ws_endpoint import websocket_endpoint
 from ws.ws_write_endpoint import websocket_write_endpoint
 from plc.opc_client import PLCReader
 from plc.buffer import data_buffer
+import os
 
+
+LOG_TO_EXCEL = os.getenv("LOG_TO_EXCEL", "true").lower() == "false"
 # --- CONFIG ---
 URL      = "opc.tcp://192.168.18.32:4840"
 USER     = "boschrexroth"
@@ -36,12 +39,10 @@ app.add_middleware(
 
 # crea y arranca el logger (antes de iniciar el PLCReader)
 excel_logger = None
-if ExcelLogger:
+if ExcelLogger and LOG_TO_EXCEL:
     excel_logger = ExcelLogger(
-        q=log_queue,
-        path_template="logs/ws_{date}.xlsx",
-        flush_every=20,
-        flush_interval=0.5,
+        q=log_queue, path_template="logs/ws_{date}.xlsx",
+        flush_every=20, flush_interval=0.5
     )
     excel_logger.start()
 
