@@ -6,6 +6,7 @@ from PyQt6.QtWebSockets import QWebSocket
 from PyQt6.QtCore import QObject, pyqtSignal, QUrl, QTimer
 import json
 import traceback
+from .login import LoginDialog
 
 
 from PyQt6.QtWidgets import (
@@ -21,12 +22,16 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from .login import LoginDialog
-
 
 HOST = os.getenv("WS_HOST", "127.0.0.1")
 PORT = int(os.getenv("WS_PORT", "8090"))
 WS_PATH = os.getenv("WS_PATH", "/ws")
+
+#URL del OPC UA del ctrlX para validar usuarios
+OPCUA_URL = os.getenv(
+    "OPCUA_URL",
+    "opc.tcp://VirtualControl-1:4840,opc.tcp://192.168.18.6:4840"
+)
 
 def is_port_open(host: str, port: int) -> bool:
     try:
@@ -493,12 +498,13 @@ if __name__ == "__main__":
         app.setStyleSheet("\n\n".join(css_parts))
 
     # ======= Primero mostrar login =======
-    from frontend.login import LoginDialog  # asegúrate de tener este import
-    login = LoginDialog()
+
+    login = LoginDialog(opcua_url=OPCUA_URL)
     if login.exec() == LoginDialog.DialogCode.Accepted:
-        user = "rexroth"  # (o toma el 'u' emitido por el dialog si lo quieres dinámico)
+        user = login.last_user or "usuario"
         win = main(after_user=user)
         sys.exit(app.exec())
     else:
         sys.exit(0)
+
 
