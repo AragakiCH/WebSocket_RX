@@ -8,6 +8,13 @@ import json
 import traceback
 from .login import LoginDialog
 
+import json, traceback, queue  # <-- agrega queue
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+from utils.excel_logger import ExcelLogger
+
 
 from PyQt6.QtWidgets import (
     QApplication, QMessageBox, QMainWindow, QLabel, QWidget, QFrame,
@@ -180,6 +187,9 @@ _UNITS = {
     "REAL.vib_crest":"","REAL.vib_g":"g","REAL.temp_C":"°C","REAL.pres_mA":"mA",
     "REAL.pres_lp":"bar","REAL.volt_V":"V","REAL.volt_lp":"V","REAL.volt_slope":"V/s",
 }
+
+ALLOWED_PREFIXES = ("REAL.", "INT.", "LREAL.", "BOOL.", "UDINT.")
+
 def unit_for(tag: str) -> str:
     return _UNITS.get(tag, "")
 
@@ -260,7 +270,7 @@ class MainWindow(QMainWindow):
 
         btn_refresh = QPushButton("Refrescar"); btn_refresh.setObjectName("Ghost")
         btn_export  = QPushButton("Exportar a Excel"); btn_export.setObjectName("Primary")
-        btn_export.clicked.connect(self._export_placeholder)
+        btn_export.clicked.connect(self._toggle_export)
 
         btn_refresh.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_export.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -315,6 +325,15 @@ class MainWindow(QMainWindow):
         self._row_cap = 10000 
         self._model.setHorizontalHeaderLabels(["Timestamp", "Tag", "Valor", "Unidad", "Grupo"])
         table.setModel(self._model)
+        self._selected_tags = set()
+        self._model.itemChanged.connect(self._on_item_changed)
+
+        # NUEVO: estado de exportación
+        self._exporting = False
+        self._export_queue = None
+        self._export_logger = None
+        self._export_path_tpl = "exports/rt_{date}.xlsx"
+
         table.horizontalHeader().resizeSection(2, 120)
         table.horizontalHeader().setHighlightSections(False)
         table.setMinimumHeight(400)
@@ -349,10 +368,43 @@ class MainWindow(QMainWindow):
         }
 
     # Placeholder de export (solo UI)
-    def _export_placeholder(self):
-        QMessageBox.information(self, "Exportar a Excel",
-                                "Esta acción exportará la tabla a Excel.\n\n"
-                                "La UI ya está, el funcionamiento lo cableamos luego 😉")
+    def _toggle_export(self):
+        if not self._exporting:
+            if not self._selected_tags:
+                QMessageBox.warning(self, "Exportar a Excel",
+                                    "Por favor selecciona al menos 1 dato (checkbox en la columna Tag).")
+                return
+            # cola grande para no perder muestras
+            self._export_queue = queue.Queue(maxsize=50000)
+            self._drops = 0
+            self._export_logger = ExcelLogger(
+                q=self._export_queue,
+                path_template="exports/rt_{date}.xlsx",
+                flush_every=50,
+                flush_interval=0.2,
+                sheet_name="rt",
+                pretty_headers=True,
+                long_format=False,
+                with_table=True,
+                autosize=True,
+                save_checkpoint_s=2.0
+            )
+            self._export_logger.start()
+            self._exporting = True
+            self._widgets["btn_export"].setText("Detener exportación")
+            QMessageBox.information(self, "Exportar a Excel",
+                                    "Exportación en tiempo real INICIADA.\n"
+                                    "Se guardará en 'exports/rt_YYYY-MM-DD.xlsx' (o _02, _03...).")
+        else:
+            try:
+                if self._export_logger:
+                    self._export_logger.stop()
+                    self._export_logger = None
+                self._export_queue = None
+            finally:
+                self._exporting = False
+                self._widgets["btn_export"].setText("Exportar a Excel")
+                QMessageBox.information(self, "Exportar a Excel", "Exportación de datos DETENIDA.")
         
     def _on_ws_status(self, status: str):
         self.statusBar().showMessage(f"WS {status}")
@@ -382,6 +434,13 @@ class MainWindow(QMainWindow):
             it_unit = QStandardItem(unit)
             it_grp  = QStandardItem(group.split('.', 1)[0] if '.' in group else group)
 
+
+            
+            # NUEVO: checkbox en Tag y guarda el tag completo en UserRole
+            it_tag.setCheckable(True)
+            it_tag.setCheckState(Qt.CheckState.Unchecked)
+            it_tag.setData(tag, Qt.ItemDataRole.UserRole)
+
             # opcional: alinear valores a la derecha
             it_val.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
@@ -409,7 +468,7 @@ class MainWindow(QMainWindow):
         for k, v in flat.items():
             if k == "timestamp":
                 continue
-            if not any(k.startswith(p) for p in ("REAL.", "INT.", "LREAL.", "BOOL.")):
+            if not any(k.startswith(p) for p in ALLOWED_PREFIXES):
                 continue
 
             if isinstance(v, float):
@@ -434,6 +493,41 @@ class MainWindow(QMainWindow):
         self._cards["last"].v.setText("ahora")
         self.statusBar().showMessage(f"WS open · último: {ts_str}")
 
+        # ===== Exportación en tiempo real
+        if self._exporting and self._export_queue is not None and self._selected_tags:
+            ts_epoch = flat.get("timestamp")
+            if not isinstance(ts_epoch, (int, float)):
+                import time as _t
+                ts_epoch = _t.time()
+            sample = {"timestamp": ts_epoch}
+            for tag in sorted(self._selected_tags):
+                sample[tag] = flat.get(tag, None)
+            try:
+                self._export_queue.put_nowait(sample)
+            except queue.Full:
+                # no bloquees la UI; cuenta la caída
+                self._drops = getattr(self, "_drops", 0) + 1
+
+        # status rico con progreso
+        rows = getattr(self._export_logger, "rows_written", 0) if self._export_logger else 0
+        drops = getattr(self, "_drops", 0)
+        self.statusBar().showMessage(f"WS open · último: {ts_str} · filas escritas: {rows} · drops: {drops}")
+
+    def _on_item_changed(self, item: QStandardItem):
+        # Solo nos importa la columna Tag
+        if item.column() != 1:
+            return
+        tag_full = item.data(Qt.ItemDataRole.UserRole)
+        if not tag_full:
+            # fallback: arma con Grupo + texto visible
+            row = item.row()
+            grp = self._model.item(row, 4).text()
+            tag_full = f"{grp}.{item.text()}" if grp else item.text()
+        if item.checkState() == Qt.CheckState.Checked:
+            self._selected_tags.add(tag_full)
+        else:
+            self._selected_tags.discard(tag_full)
+
     def closeEvent(self, e):
         try:
             if hasattr(self, "ws_client") and self.ws_client:
@@ -442,8 +536,16 @@ class MainWindow(QMainWindow):
                 self.server_proc.terminate()
                 if not self.server_proc.waitForFinished(1500):
                     self.server_proc.kill()
+            if getattr(self, "_exporting", False):
+                try:
+                    if self._export_logger:
+                        self._export_logger.stop()
+                except Exception:
+                    pass
+
         finally:
             super().closeEvent(e)
+
 # ========== fin MainWindow ==========
 def main(after_user: str | None = None):
     here = Path(__file__).resolve().parent
