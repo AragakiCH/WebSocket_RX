@@ -50,7 +50,7 @@ class LoginDialog(QDialog):
         self.opcua_url = opcua_url  # ej: "opc.tcp://VirtualControl-1:4840,opc.tcp://192.168.18.6:4840"
         self._last_user = None
 
-        self.setWindowTitle("LEXI 1.0 — Iniciar sesión")
+        self.setWindowTitle("Iniciar sesión")
         self.setModal(True)
         self.setObjectName("LoginDialog")
         self.setMinimumSize(420, 420)
@@ -61,13 +61,13 @@ class LoginDialog(QDialog):
         card = QFrame(self); card.setObjectName("LoginCard"); card.setProperty("class","Card"); card.setMinimumWidth(360)
         card_l = QVBoxLayout(card); card_l.setContentsMargins(24,24,24,24); card_l.setSpacing(16)
 
-        title = QLabel("⚙️  LEXI 1.0"); title.setObjectName("LoginTitle")
+        title = QLabel("Iniciar Sesión"); title.setObjectName("LoginTitle")
         subtitle = QLabel("Panel de datos · ctrlX"); subtitle.setObjectName("LoginSubtitle")
         card_l.addWidget(title); card_l.addWidget(subtitle)
 
         self.txt_user = QLineEdit(); self.txt_user.setPlaceholderText("Usuario"); self.txt_user.setObjectName("LoginInput")
         self.txt_pass = QLineEdit(); self.txt_pass.setPlaceholderText("Contraseña"); self.txt_pass.setEchoMode(QLineEdit.EchoMode.Password); self.txt_pass.setObjectName("LoginInput")
-        toggle = QPushButton("👁 Mostrar"); toggle.setObjectName("Ghost"); toggle.setCheckable(True)
+        toggle = QPushButton("Mostrar"); toggle.setObjectName("Ghost"); toggle.setCheckable(True)
         toggle.setCursor(Qt.CursorShape.PointingHandCursor)
         def _toggle():
             self.txt_pass.setEchoMode(QLineEdit.EchoMode.Normal if toggle.isChecked() else QLineEdit.EchoMode.Password)
@@ -87,7 +87,7 @@ class LoginDialog(QDialog):
         btn_row = QHBoxLayout(); btn_row.addStretch(1); btn_row.addWidget(self.btn_login)
         card_l.addLayout(btn_row)
 
-        foot = QLabel("© PSI · Mechatronics"); foot.setObjectName("LoginFoot"); foot.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        foot = QLabel("© PSI 2025"); foot.setObjectName("LoginFoot"); foot.setAlignment(Qt.AlignmentFlag.AlignHCenter)
 
         root.addStretch(1); root.addWidget(card, alignment=Qt.AlignmentFlag.AlignHCenter); root.addWidget(foot); root.addStretch(1)
 

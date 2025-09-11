@@ -189,7 +189,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.server_proc = server_proc
         self.project_root = project_root
-        self.setWindowTitle("LEXI 1.0 — Panel de Datos")
+        self.setWindowTitle("Dashboard")
         self.resize(1200, 800)
         self.setMinimumSize(1000, 680)
         #self.setStyleSheet(build_styles())
@@ -219,7 +219,7 @@ class MainWindow(QMainWindow):
         sidebar.setFixedWidth(220)
         sb_lay = QVBoxLayout(sidebar); sb_lay.setContentsMargins(16,16,16,16); sb_lay.setSpacing(8)
 
-        logo = QLabel("⚙️  LEXI 1.0"); logo.setStyleSheet("color:#F8FAFC;font-weight:800;font-size:18px;")
+        logo = QLabel("Dashboard"); logo.setStyleSheet("color:#F8FAFC;font-weight:800;font-size:18px;")
         sb_lay.addWidget(logo)
 
         def nav_btn(text, current=False):
