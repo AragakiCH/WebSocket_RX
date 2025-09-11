@@ -7,22 +7,21 @@ from PyQt6.QtCore import QObject, pyqtSignal, QUrl, QTimer
 import json
 import traceback
 from .login import LoginDialog
-
 import json, traceback, queue  # <-- agrega queue
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 from utils.excel_logger import ExcelLogger
-
-
 from PyQt6.QtWidgets import (
     QApplication, QMessageBox, QMainWindow, QLabel, QWidget, QFrame,
     QHBoxLayout, QVBoxLayout, QLineEdit, QPushButton, QComboBox,
-    QDateEdit, QTableView, QSizePolicy
+    QDateEdit, QTableView, QSizePolicy, QFileDialog
 )
-from PyQt6.QtCore import Qt, QDate, QSize
+from PyQt6.QtCore import Qt, QDate, QSize, QSettings  
 from PyQt6.QtGui import QIcon, QStandardItemModel, QStandardItem
+import tempfile, shutil
+from datetime import datetime
 
 # al inicio de tu app_desktop_threaded.py
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -37,7 +36,7 @@ WS_PATH = os.getenv("WS_PATH", "/ws")
 #URL del OPC UA del ctrlX para validar usuarios
 OPCUA_URL = os.getenv(
     "OPCUA_URL",
-    "opc.tcp://VirtualControl-1:4840,opc.tcp://192.168.100.31:4840"
+    "opc.tcp://VirtualControl-1:4840, opc.tcp://192.168.100.31:4840"
 )
 
 def is_port_open(host: str, port: int) -> bool:
@@ -47,7 +46,8 @@ def is_port_open(host: str, port: int) -> bool:
     except OSError:
         return False
 
-def start_ws_server(project_root: Path, module_str: str) -> QProcess:
+def start_ws_server(project_root: Path, module_str: str,
+                    opcua_url: str, opcua_user: str, opcua_pwd: str) -> QProcess:
     proc = QProcess()
     proc.setProgram(sys.executable)
     proc.setArguments(["-m", "uvicorn", module_str, "--host", HOST, "--port", str(PORT), "--log-level", "info"])
@@ -55,9 +55,13 @@ def start_ws_server(project_root: Path, module_str: str) -> QProcess:
 
     env = QProcessEnvironment.systemEnvironment()
     env.insert("PYTHONUTF8", "1")
+    # ===== inyecta credenciales aquí =====
+    env.insert("OPCUA_URL", opcua_url)
+    env.insert("OPCUA_USER", opcua_user)
+    env.insert("OPCUA_PASSWORD", opcua_pwd)
     proc.setProcessEnvironment(env)
-    proc.setProcessChannelMode(QProcess.ProcessChannelMode.ForwardedChannels)
 
+    proc.setProcessChannelMode(QProcess.ProcessChannelMode.ForwardedChannels)
     proc.start()
     if not proc.waitForStarted(3000):
         raise RuntimeError("No se pudo iniciar uvicorn (timeout).")
@@ -202,6 +206,8 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Dashboard")
         self.resize(1200, 800)
         self.setMinimumSize(1000, 680)
+        self._settings = QSettings("WebSocketRX", "PSI-Dashboard")
+        self._last_export_dir = str((self.project_root / "exports").resolve())
         #self.setStyleSheet(build_styles())
 
         # ====== WebSocket Client ======
@@ -332,7 +338,8 @@ class MainWindow(QMainWindow):
         self._exporting = False
         self._export_queue = None
         self._export_logger = None
-        self._export_path_tpl = "exports/rt_{date}.xlsx"
+        self._export_path_tpl = None
+        self._export_session_dir = None 
 
         table.horizontalHeader().resizeSection(2, 120)
         table.horizontalHeader().setHighlightSections(False)
@@ -371,15 +378,24 @@ class MainWindow(QMainWindow):
     def _toggle_export(self):
         if not self._exporting:
             if not self._selected_tags:
-                QMessageBox.warning(self, "Exportar a Excel",
-                                    "Por favor selecciona al menos 1 dato (checkbox en la columna Tag).")
+                QMessageBox.warning(
+                    self, "Exportar a Excel",
+                    "Por favor selecciona al menos 1 dato (checkbox en la columna Tag)."
+                )
                 return
-            # cola grande para no perder muestras
+
+            # === NO PREGUNTAMOS NADA: arrancamos YA en una carpeta temporal de sesión ===
+            sess_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+            base_tmp = Path(tempfile.gettempdir()) / "wsrx_export" / sess_id
+            base_tmp.mkdir(parents=True, exist_ok=True)
+            self._export_session_dir = base_tmp
+            self._export_path_tpl = str(base_tmp / "rt_{date}.xlsx")
+
             self._export_queue = queue.Queue(maxsize=50000)
             self._drops = 0
             self._export_logger = ExcelLogger(
                 q=self._export_queue,
-                path_template="exports/rt_{date}.xlsx",
+                path_template=self._export_path_tpl,
                 flush_every=50,
                 flush_interval=0.2,
                 sheet_name="rt",
@@ -392,19 +408,96 @@ class MainWindow(QMainWindow):
             self._export_logger.start()
             self._exporting = True
             self._widgets["btn_export"].setText("Detener exportación")
-            QMessageBox.information(self, "Exportar a Excel",
-                                    "Exportación en tiempo real INICIADA.\n"
-                                    "Se guardará en 'exports/rt_YYYY-MM-DD.xlsx' (o _02, _03...).")
-        else:
+            self.statusBar().showMessage(
+                f"Exportando → {self._export_session_dir} (temporal)."
+            )
+            QMessageBox.information(
+                self, "Exportación iniciada",
+                f"Exportando en tiempo real.\nArchivo temporal: {self._export_path_tpl}\n"
+                f"Al detener, te pediré dónde guardarlo."
+            )
+            return
+
+        # ====== Estabas exportando → vas a detener y elegir destino ======
+        try:
+            if self._export_logger:
+                self._export_logger.stop()   # espera a que cierre/flush
+                self._export_logger = None
+            self._export_queue = None
+        finally:
+            self._exporting = False
+            self._widgets["btn_export"].setText("Exportar a Excel")
+
+        # Junta los .xlsx generados en la sesión
+        files = sorted(Path(self._export_session_dir).glob("*.xlsx")) if self._export_session_dir else []
+        if not files:
+            QMessageBox.information(self, "Exportación detenida",
+                                    "No se generó ningún archivo durante la sesión.")
+            self._export_session_dir = None
+            return
+
+        # Si hay un solo archivo → Save As; si hay varios → elige carpeta y movemos todos
+        last_dir = self._settings.value("export/dir", str((self.project_root / "exports").resolve()))
+
+        if len(files) == 1:
+            default_name = files[0].name  # ej. rt_2025-09-11.xlsx
+            dest_path, _ = QFileDialog.getSaveFileName(
+                self,
+                "Guardar Excel como…",
+                str(Path(last_dir) / default_name),
+                "Excel (*.xlsx)"
+            )
+            if not dest_path:
+                # si cancela, deja el archivo en temporal y avisa dónde quedó
+                QMessageBox.information(
+                    self, "Exportación detenida",
+                    f"Archivo quedó en temporal:\n{files[0]}"
+                )
+                return
+            self._settings.setValue("export/dir", str(Path(dest_path).parent))
             try:
-                if self._export_logger:
-                    self._export_logger.stop()
-                    self._export_logger = None
-                self._export_queue = None
-            finally:
-                self._exporting = False
-                self._widgets["btn_export"].setText("Exportar a Excel")
-                QMessageBox.information(self, "Exportar a Excel", "Exportación de datos DETENIDA.")
+                shutil.move(str(files[0]), dest_path)
+                QMessageBox.information(self, "Exportación guardada",
+                                        f"Guardado en:\n{dest_path}")
+            except Exception as e:
+                QMessageBox.critical(self, "Error al mover archivo",
+                                    f"No se pudo guardar:\n{e}\n\nOrigen:\n{files[0]}")
+        else:
+            # Múltiples archivos (rotación _02, _03, o varios días)
+            dest_dir = QFileDialog.getExistingDirectory(
+                self, "Selecciona carpeta destino para los Excel",
+                last_dir, QFileDialog.Option.ShowDirsOnly
+            )
+            if not dest_dir:
+                QMessageBox.information(
+                    self, "Exportación detenida",
+                    f"Archivos quedaron en temporal:\n{self._export_session_dir}"
+                )
+                return
+            self._settings.setValue("export/dir", dest_dir)
+            moved = 0
+            errors = []
+            for f in files:
+                try:
+                    shutil.move(str(f), str(Path(dest_dir) / f.name))
+                    moved += 1
+                except Exception as e:
+                    errors.append((f, e))
+            msg = f"Movidos {moved}/{len(files)} archivos a:\n{dest_dir}"
+            if errors:
+                msg += "\n\nErrores:\n" + "\n".join(f"- {p}: {err}" for p, err in errors)
+            QMessageBox.information(self, "Exportación guardada", msg)
+
+        # Limpia la carpeta temporal (si quedó vacía)
+        try:
+            if self._export_session_dir and self._export_session_dir.exists():
+                # intenta borrar la subcarpeta de sesión; ignora si no está vacía
+                if not any(self._export_session_dir.iterdir()):
+                    self._export_session_dir.rmdir()
+        except Exception:
+            pass
+        finally:
+            self._export_session_dir = None
         
     def _on_ws_status(self, status: str):
         self.statusBar().showMessage(f"WS {status}")
@@ -547,7 +640,7 @@ class MainWindow(QMainWindow):
             super().closeEvent(e)
 
 # ========== fin MainWindow ==========
-def main(after_user: str | None = None):
+def main(after_user: str | None = None, creds: dict | None = None):
     here = Path(__file__).resolve().parent
     project_root = here.parent
 
@@ -565,7 +658,10 @@ def main(after_user: str | None = None):
 
     # Arranca el WS
     try:
-        server_proc = start_ws_server(project_root, module_str)
+        url = creds.get("url") if creds else OPCUA_URL
+        usr = creds.get("user") if creds else ""
+        pwd = creds.get("pwd")  if creds else ""
+        server_proc = start_ws_server(project_root, module_str, url, usr, pwd)
     except Exception as e:
         QMessageBox.critical(None, "Error WebSocket", f"No se pudo iniciar el servidor:\n{e}")
         sys.exit(1)
@@ -604,7 +700,8 @@ if __name__ == "__main__":
     login = LoginDialog(opcua_url=OPCUA_URL)
     if login.exec() == LoginDialog.DialogCode.Accepted:
         user = login.last_user or "usuario"
-        win = main(after_user=user)
+        creds = {"user": login.last_user or "", "pwd": login.last_pwd or "", "url": login.good_url or OPCUA_URL}
+        win = main(after_user=user, creds=creds)
         sys.exit(app.exec())
     else:
         sys.exit(0)

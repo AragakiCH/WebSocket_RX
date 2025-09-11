@@ -5,10 +5,11 @@ from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QFrame
 )
+from opcua import Client
 
 # === OPC UA check en un hilo (sin discovery) ===
 class _OpcuaCheckWorker(QThread):
-    result = pyqtSignal(bool, str)  # ok, message
+    result = pyqtSignal(bool, str, str)  # ok, message
 
     def __init__(self, url: str, user: str, pwd: str, parent=None):
         super().__init__(parent)
@@ -17,7 +18,6 @@ class _OpcuaCheckWorker(QThread):
         self.pwd  = pwd
 
     def _probe(self, url: str):
-        from opcua import Client
         c = Client(url, timeout=8.0)     # directo al endpoint, sin discovery
         c.set_user(self.user)
         c.set_password(self.pwd)
@@ -29,17 +29,16 @@ class _OpcuaCheckWorker(QThread):
             c.disconnect()
 
     def run(self):
-        # Permito múltiples endpoints separados por coma, e intento en orden
         urls = [u.strip() for u in self.url.split(",") if u.strip()] or [self.url]
         last_err = "No endpoints probados"
         for url in urls:
             try:
                 self._probe(url)
-                self.result.emit(True, "OK")
+                self.result.emit(True, "OK", url)  # <- url que funcionó
                 return
             except Exception as e:
                 last_err = f"{type(e).__name__}: {e}"
-        self.result.emit(False, last_err)
+        self.result.emit(False, last_err, "")
 
 
 class LoginDialog(QDialog):
@@ -49,6 +48,8 @@ class LoginDialog(QDialog):
         super().__init__(parent)
         self.opcua_url = opcua_url  # ej: "opc.tcp://VirtualControl-1:4840,opc.tcp://192.168.18.6:4840"
         self._last_user = None
+        self._last_pwd  = None
+        self._good_url  = None
 
         self.setWindowTitle("Iniciar sesión")
         self.setModal(True)
@@ -120,10 +121,12 @@ class LoginDialog(QDialog):
         self._worker.result.connect(self._on_check_result)
         self._worker.start()
 
-    def _on_check_result(self, ok: bool, message: str):
+    def _on_check_result(self, ok: bool, message: str, good_url: str):
         self._set_busy(False)
         if ok:
             self._last_user = self.txt_user.text().strip()
+            self._last_pwd  = self.txt_pass.text()
+            self._good_url  = good_url or self.opcua_url  # fallback
             self.login_ok.emit(self._last_user)
             self.accept()
         else:
@@ -132,3 +135,11 @@ class LoginDialog(QDialog):
     @property
     def last_user(self) -> str | None:
         return self._last_user
+
+    @property
+    def last_pwd(self) -> str | None:
+        return self._last_pwd
+
+    @property
+    def good_url(self) -> str | None:
+        return self._good_url

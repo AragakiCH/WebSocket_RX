@@ -2,6 +2,7 @@ from fastapi import FastAPI, WebSocket
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 import queue
+import os, queue
 
 try:
     from utils.excel_logger import ExcelLogger
@@ -18,9 +19,9 @@ import os
 
 LOG_TO_EXCEL = os.getenv("LOG_TO_EXCEL", "true").lower() == "false"
 # --- CONFIG ---
-URL      = "opc.tcp://192.168.100.31:4840"
-USER     = "boschrexroth"
-PASSWORD = "boschrexroth"
+URL      = os.getenv("OPCUA_URL", "opc.tcp://192.168.100.31:4840")
+USER     = os.getenv("OPCUA_USER", "")
+PASSWORD = os.getenv("OPCUA_PASSWORD", "")
 
 # --- APP ---
 app = FastAPI()
