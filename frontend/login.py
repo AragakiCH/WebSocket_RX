@@ -19,7 +19,6 @@ class _OpcuaCheckWorker(QThread):
     def _probe(self, url: str):
         from opcua import Client
         c = Client(url, timeout=8.0)     # directo al endpoint, sin discovery
-        # No llamamos set_security_string -> SecurityPolicy None / Mode None
         c.set_user(self.user)
         c.set_password(self.pwd)
         c.connect()
@@ -72,7 +71,7 @@ class LoginDialog(QDialog):
         toggle.setCursor(Qt.CursorShape.PointingHandCursor)
         def _toggle():
             self.txt_pass.setEchoMode(QLineEdit.EchoMode.Normal if toggle.isChecked() else QLineEdit.EchoMode.Password)
-            toggle.setText("🙈 Ocultar" if toggle.isChecked() else "👁 Mostrar")
+            toggle.setText("Ocultar" if toggle.isChecked() else "Mostrar")
         toggle.clicked.connect(_toggle)
 
         pass_row = QHBoxLayout(); pass_row.addWidget(self.txt_pass, 1); pass_row.addWidget(toggle, 0)
