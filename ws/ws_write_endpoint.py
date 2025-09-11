@@ -5,7 +5,7 @@ from plc.opc_client import PLCReader  # Usa el mismo browse_by_names, etc.
 
 # Debes reutilizar los mismos datos de conexión de main.py, así que puedes importarlos, o pasarlos como parámetro si lo refactorizas más
 
-URL = "opc.tcp://192.168.18.6:4840"
+URL = "opc.tcp://192.168.100.31:4840"
 USER = "boschrexroth"
 PASSWORD = "boschrexroth"
 

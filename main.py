@@ -18,7 +18,7 @@ import os
 
 LOG_TO_EXCEL = os.getenv("LOG_TO_EXCEL", "true").lower() == "false"
 # --- CONFIG ---
-URL      = "opc.tcp://192.168.18.32:4840"
+URL      = "opc.tcp://192.168.100.31:4840"
 USER     = "boschrexroth"
 PASSWORD = "boschrexroth"
 

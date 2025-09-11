@@ -37,7 +37,7 @@ WS_PATH = os.getenv("WS_PATH", "/ws")
 #URL del OPC UA del ctrlX para validar usuarios
 OPCUA_URL = os.getenv(
     "OPCUA_URL",
-    "opc.tcp://VirtualControl-1:4840,opc.tcp://192.168.18.6:4840"
+    "opc.tcp://VirtualControl-1:4840,opc.tcp://192.168.100.31:4840"
 )
 
 def is_port_open(host: str, port: int) -> bool:
