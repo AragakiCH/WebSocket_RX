@@ -313,7 +313,14 @@ class MainWindow(QMainWindow):
         self._model = QStandardItemModel()
         self._cells_by_tag = {}
         self._row_cap = 10000 
-        self._model.setHorizontalHeaderLabels(["Timestamp", "Tag", "Valor", "Unidad", "Grupo"])
+        self._model.setHorizontalHeaderLabels(["Timestamp", "", "Tag", "Valor", "Unidad", "Grupo"])
+
+        table.setModel(self._model)
+        table.setColumnWidth(1, 36)     # col 1 = checkbox al costado del Tag
+        table.horizontalHeader().resizeSection(2, 160)  # col 2 = Tag
+
+
+
         table.setModel(self._model)
         table.horizontalHeader().resizeSection(2, 120)
         table.horizontalHeader().setHighlightSections(False)
@@ -376,27 +383,36 @@ class MainWindow(QMainWindow):
         """
         rec = self._cells_by_tag.get(tag)
         if rec is None:
-            it_ts   = QStandardItem(ts_str)
-            it_tag  = QStandardItem(tag.split('.', 1)[-1])                 # muestra solo el subtag
-            it_val  = QStandardItem(val)
-            it_unit = QStandardItem(unit)
-            it_grp  = QStandardItem(group.split('.', 1)[0] if '.' in group else group)
+    # === Columna 1: checkbox ===
+            it_chk = QStandardItem()
+            it_chk.setEditable(False)
+            it_chk.setCheckable(True)
+            it_chk.setCheckState(Qt.CheckState.Unchecked)
+            it_chk.setSelectable(False)
+            it_chk.setText("")
 
-            # opcional: alinear valores a la derecha
+            # === Resto de columnas ===
+            it_ts   = QStandardItem(ts_str)                          # col 0
+            it_tag  = QStandardItem(tag.split('.', 1)[-1])           # col 2
+            it_val  = QStandardItem(val)                             # col 3
+            it_unit = QStandardItem(unit)                            # col 4
+            it_grp  = QStandardItem(group.split('.',1)[0] if '.' in group else group)  # col 5
+
             it_val.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
-            self._model.appendRow([it_ts, it_tag, it_val, it_unit, it_grp])
-            self._cells_by_tag[tag] = (it_ts, it_tag, it_val, it_unit, it_grp)
+            # Inserta en el orden correcto: 0=Timestamp, 1=Check, 2=Tag, 3=Valor, 4=Unidad, 5=Grupo
+            self._model.appendRow([it_ts, it_chk, it_tag, it_val, it_unit, it_grp])
 
-            # si activas ordenamiento:
-            # self._widgets["table"].sortByColumn(1, Qt.SortOrder.AscendingOrder)
+            # Guarda referencias en el mismo orden
+            self._cells_by_tag[tag] = (it_ts, it_chk, it_tag, it_val, it_unit, it_grp)
         else:
-            it_ts, it_tag, it_val, it_unit, it_grp = rec
+            it_ts, it_chk, it_tag, it_val, it_unit, it_grp = rec
             it_ts.setText(ts_str)
             if it_val.text() != val:
                 it_val.setText(val)
             if unit and it_unit.text() != unit:
                 it_unit.setText(unit)
+
 
 
     def _on_snapshot(self, snap: dict):
@@ -444,6 +460,7 @@ class MainWindow(QMainWindow):
                     self.server_proc.kill()
         finally:
             super().closeEvent(e)
+            
 # ========== fin MainWindow ==========
 def main(after_user: str | None = None):
     here = Path(__file__).resolve().parent
