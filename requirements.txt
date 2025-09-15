@@ -1,0 +1,9 @@
+aiosqlite==0.21.0
+fastapi==0.116.1
+opcua==0.98.13
+openpyxl==3.1.5
+pandas==2.3.2
+PyQt6==6.9.1
+pyqt6_sip==13.10.2
+uvicorn==0.35.0
+websockets==12.0

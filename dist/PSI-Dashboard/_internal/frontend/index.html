@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>ctrlX WebSocket UI</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: sans-serif;
+      background: #f5f7fa;
+      color: #333;
+      padding: 1rem 2rem;
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1.5rem;
+    }
+    header h1 {
+      font-size: 1.75rem;
+      color: #004e7c;
+    }
+    .btn {
+      background-color: #00b0f0;
+      border: none;
+      color: white;
+      padding: 0.6rem 1rem;
+      margin-left: 0.5rem;
+      cursor: pointer;
+      border-radius: 0.25rem;
+      font-size: 0.95rem;
+    }
+    .btn:disabled {
+      background-color: #8fbcd4;
+      cursor: not-allowed;
+    }
+    main {
+      background: white;
+      border-radius: 0.5rem;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+      padding: 1rem;
+    }
+    .status {
+      font-style: italic;
+      color: #666;
+      margin-bottom: 1rem;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    th, td {
+      padding: 0.75rem 1rem;
+      text-align: left;
+      border-bottom: 1px solid #e0e0e0;
+    }
+    th {
+      background: #f0f8ff;
+      color: #004e7c;
+      font-weight: 600;
+    }
+    tr:hover td {
+      background: #f9f9f9;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>ctrlX WebSocket Demo</h1>
+    <div>
+      <button id="btnConnect" class="btn">Obtener Datos del PLC</button>
+      <button id="btnDisconnect" class="btn" disabled>Desconectar</button>
+    </div>
+  </header>
+
+  <main>
+    <div id="status" class="status">WebSocket desconectado.</div>
+    <table id="data-table">
+      <thead>
+        <tr><th>Tag</th><th>Valor</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </main>
+
+  <script src="app.js?v=2" defer></script>
+</body>
+</html>

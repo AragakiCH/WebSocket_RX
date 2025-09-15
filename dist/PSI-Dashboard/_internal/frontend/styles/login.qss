@@ -1,0 +1,76 @@
+/* ===== Login Dialog ===== */
+#LoginDialog {
+    background-color: #0B1220;
+}
+
+#LoginCard {
+    background: #111827;
+    border: 1px solid #1f2937;
+    border-radius: 16px;
+}
+
+#LoginTitle {
+    color: #F8FAFC;
+    font-size: 22px;
+    font-weight: 800;
+}
+
+#LoginSubtitle {
+    color: #93A3B8;
+    font-size: 13px;
+    margin-top: -4px;
+}
+
+#LoginInput {
+    color: #E5E7EB;
+    background: #0f172a;
+    border: 1px solid #243045;
+    border-radius: 10px;
+    padding: 10px 12px;
+}
+
+#LoginInput:focus {
+    border: 1px solid #3B82F6;
+}
+
+#LoginError {
+    color: #FCA5A5;
+    font-size: 12px;
+    padding: 4px 6px;
+    background: rgba(239,68,68,0.06);
+    border: 1px solid rgba(239,68,68,0.35);
+    border-radius: 8px;
+}
+
+#LoginFoot {
+    color: #64748B;
+    font-size: 11px;
+}
+
+/* Botones base que ya usas */
+QPushButton#Primary {
+    background: #2563EB;
+    color: white;
+    border: none;
+    border-radius: 10px;
+    padding: 10px 14px;
+    font-weight: 700;
+}
+QPushButton#Primary:hover { background: #1D4ED8; }
+QPushButton#Primary:pressed { background: #1E40AF; }
+
+QPushButton#Ghost {
+    background: transparent;
+    color: #A7B4C4;
+    border: 1px solid #2b3b55;
+    border-radius: 10px;
+    padding: 9px 12px;
+}
+QPushButton#Ghost:hover { color: #D1D9E6; border-color: #3b4a68; }
+
+/* Card genérica que ya usas */
+.QFrame#Card, .Card {
+    background: #0f172a;
+    border: 1px solid #243045;
+    border-radius: 14px;
+}
