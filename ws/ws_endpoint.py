@@ -7,15 +7,14 @@ log = logging.getLogger("ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     log.info("connection open")
-    last_ts = None
+    last_seq = None
     try:
         while True:
-            snap = data_buffer.latest()  # <- véase buffer abajo
-            if snap:
-                ts = snap.get("timestamp") or time.time()
-                if ts != last_ts:
+            batch = data_buffer.after(last_seq)
+            if batch:
+                for snap in batch:
                     await websocket.send_text(json.dumps(snap))
-                    last_ts = ts
-            await asyncio.sleep(0.2)  # 5 Hz
+                last_seq = batch[-1]["__seq__"]
+            await asyncio.sleep(0.01)  # ~100 Hz de “pull”; ajusta si quieres
     except WebSocketDisconnect:
         log.info("connection closed")

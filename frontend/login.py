@@ -6,6 +6,56 @@ from PyQt6.QtWidgets import (
     QPushButton, QFrame
 )
 from opcua import Client
+from plc.discovery import discover_opcua_urls, pick_first_alive
+from pathlib import Path
+
+
+# === Hilo de discovery (no bloquea la UI) ===
+class _DiscoveryWorker(QThread):
+    # emite: lista de candidatos y la mejor URL (o "")
+    done = pyqtSignal(list, str)
+
+    def __init__(self, env_urls: str, parent=None):
+        super().__init__(parent)
+        self.env_urls = env_urls
+
+    @staticmethod
+    def _tcp_alive(host: str, port: int = 4840, timeout: float = 0.3) -> bool:
+        import socket
+        try:
+            with socket.create_connection((host, port), timeout=timeout):
+                return True
+        except OSError:
+            return False
+
+    def run(self):
+        env_list = [u.strip() for u in (self.env_urls or "").split(",") if u.strip()]
+        candidates = discover_opcua_urls(extra_candidates=env_list)
+
+        def _parse(url: str):
+            after = url.split("://", 1)[-1]
+            parts = after.split(":")
+            host = parts[0]; port = int(parts[1]) if len(parts) > 1 else 4840
+            return host, port
+
+        def _valid_host(h: str) -> bool:
+            if h in ("0.0.0.0", "255.255.255.255"): return False
+            if h.startswith(("224.", "239.")) or h.endswith(".255"): return False
+            return True
+
+        # 1º probamos candidatos NO loopback; luego loopback
+        ordered = [u for u in candidates if _valid_host(_parse(u)[0]) and _parse(u)[0] not in ("127.0.0.1", "localhost")]
+        ordered += [u for u in candidates if _parse(u)[0] in ("127.0.0.1", "localhost")]
+
+        best = ""
+        for url in ordered:
+            host, port = _parse(url)
+            if self._tcp_alive(host, port, 0.25):
+                best = url
+                break
+
+        self.done.emit(candidates, best)
+
 
 # === OPC UA check en un hilo (sin discovery) ===
 class _OpcuaCheckWorker(QThread):
@@ -17,24 +67,88 @@ class _OpcuaCheckWorker(QThread):
         self.user = user
         self.pwd  = pwd
 
+    @staticmethod
+    def _ensure_cert_pair(cert_path: str, key_path: str):
+        if os.path.exists(cert_path) and os.path.exists(key_path):
+            return
+        from cryptography import x509
+        from cryptography.x509.oid import NameOID
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        import datetime
+        Path(os.path.dirname(cert_path)).mkdir(parents=True, exist_ok=True)
+        key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        subject = x509.Name([
+            x509.NameAttribute(NameOID.COUNTRY_NAME, u"PE"),
+            x509.NameAttribute(NameOID.ORGANIZATION_NAME, u"PSI"),
+            x509.NameAttribute(NameOID.COMMON_NAME, u"PSI-Dashboard"),
+        ])
+        cert = (x509.CertificateBuilder()
+                .subject_name(subject).issuer_name(subject)
+                .public_key(key.public_key())
+                .serial_number(x509.random_serial_number())
+                .not_valid_before(datetime.datetime.utcnow() - datetime.timedelta(days=1))
+                .not_valid_after(datetime.datetime.utcnow() + datetime.timedelta(days=3650))
+                .sign(key, hashes.SHA256()))
+        with open(key_path, "wb") as f:
+            f.write(key.private_bytes(
+                serialization.Encoding.PEM,
+                serialization.PrivateFormat.TraditionalOpenSSL,
+                serialization.NoEncryption()))
+        with open(cert_path, "wb") as f:
+            f.write(cert.public_bytes(serialization.Encoding.PEM))
+
     def _probe(self, url: str):
-        c = Client(url, timeout=8.0)     # directo al endpoint, sin discovery
-        c.set_user(self.user)
-        c.set_password(self.pwd)
-        c.connect()
-        try:
-            # ping mínimo para confirmar sesión válida
-            c.get_root_node().get_child(["0:Objects"])
-        finally:
-            c.disconnect()
+        from opcua import Client
+        # RUTA ABSOLUTA estable para no regenerar cada vez
+        if os.name == "nt":
+            base = Path(os.getenv("LOCALAPPDATA", str(Path.home() / "AppData/Local"))) / "PSI-Dashboard" / "opcua"
+        else:
+            base = Path(os.getenv("XDG_DATA_HOME", str(Path.home() / ".local/share"))) / "psi-dashboard" / "opcua"
+        cert_path = str(base / "client_cert.pem")
+        key_path  = str(base / "client_key.pem")
+
+        self._ensure_cert_pair(cert_path, key_path)
+
+        attempts = [
+            ("Basic256Sha256", "SignAndEncrypt"),
+            ("Basic256Sha256", "Sign"),
+            ("Basic256",       "SignAndEncrypt"),
+            ("None",           "None"),  # solo diagnóstico
+        ]
+
+        last_err = None
+        for pol, mode in attempts:
+            try:
+                c = Client(url, timeout=8.0)
+                c.application_name = "PSI Dashboard"
+                c.application_uri  = "urn:psi:dashboard"   # estable
+                if pol != "None":
+                    c.set_security_string(f"{pol},{mode},{cert_path},{key_path}")
+                if self.user:
+                    c.set_user(self.user); c.set_password(self.pwd)
+                c.connect()
+                try:
+                    c.get_root_node().get_child(["0:Objects"])
+                finally:
+                    c.disconnect()
+                return
+            except Exception as e:
+                last_err = e
+                print(f"[OPC UA] intento {pol}/{mode} -> {type(e).__name__}: {e}", flush=True)
+
+        raise last_err or RuntimeError("No se pudo establecer sesión segura")
 
     def run(self):
-        urls = [u.strip() for u in self.url.split(",") if u.strip()] or [self.url]
+        urls = [u.strip() for u in (self.url or "").split(",") if u.strip()]
+        if not urls:
+            self.result.emit(False, "Sin candidatos OPC UA", "")
+            return
         last_err = "No endpoints probados"
         for url in urls:
             try:
                 self._probe(url)
-                self.result.emit(True, "OK", url)  # <- url que funcionó
+                self.result.emit(True, "OK", url)
                 return
             except Exception as e:
                 last_err = f"{type(e).__name__}: {e}"
@@ -64,6 +178,10 @@ class LoginDialog(QDialog):
 
         title = QLabel("Iniciar Sesión"); title.setObjectName("LoginTitle")
         subtitle = QLabel("Panel de datos · ctrlX"); subtitle.setObjectName("LoginSubtitle")
+        self.lbl_detect = QLabel("Detectando PLC…")
+        self.lbl_detect.setObjectName("DetectInfo")
+        self.lbl_detect.setStyleSheet("color:#64748B; font-size:12px;")
+        card_l.addWidget(self.lbl_detect)
         card_l.addWidget(title); card_l.addWidget(subtitle)
 
         self.txt_user = QLineEdit(); self.txt_user.setPlaceholderText("Usuario"); self.txt_user.setObjectName("LoginInput")
@@ -98,6 +216,30 @@ class LoginDialog(QDialog):
 
         self._worker = None
 
+                # ⬇️ arranca discovery INMEDIATO
+        self._start_discovery()
+
+    # --------- DISCOVERY ----------
+    def _start_discovery(self):
+        self._disc_worker = _DiscoveryWorker(self.opcua_url, self)
+        self._disc_worker.done.connect(self._on_discovery_done)
+        self._disc_worker.start()
+
+    def _on_discovery_done(self, candidates: list, best_url: str):
+        self._candidates = candidates or []
+        if best_url:
+            self._good_url = best_url
+            # reordena para que el check use primero la buena
+            urls = [best_url] + [u for u in self._candidates if u != best_url]
+            self.opcua_url = ",".join(urls)
+            self.lbl_detect.setText(f"Detectado: {best_url}")
+        else:
+            msg = "Sin PLC detectado automáticamente."
+            if self._candidates:
+                msg += f" ({len(self._candidates)} candidatos)"
+                print("[DISCOVERY] candidates:", self._candidates, flush=True)
+            self.lbl_detect.setText(msg)
+
     def _set_busy(self, busy: bool):
         self.btn_login.setEnabled(not busy)
         self.txt_user.setEnabled(not busy)
@@ -117,7 +259,9 @@ class LoginDialog(QDialog):
 
         self.lbl_err.setVisible(False)
         self._set_busy(True)
-        self._worker = _OpcuaCheckWorker(self.opcua_url, u, p, self)
+        # usa la lista reordenada por discovery (si ya terminó); si no, usa lo que haya
+        urls = self.opcua_url or ""
+        self._worker = _OpcuaCheckWorker(urls, u, p, self)
         self._worker.result.connect(self._on_check_result)
         self._worker.start()
 

@@ -38,10 +38,7 @@ PORT = int(os.getenv("WS_PORT", "8090"))
 WS_PATH = os.getenv("WS_PATH", "/ws")
 
 #URL del OPC UA del ctrlX para validar usuarios
-OPCUA_URL = os.getenv(
-    "OPCUA_URL",
-    "opc.tcp://VirtualControl-1:4840,opc.tcp://192.168.100.31:4840"
-)
+OPCUA_URL = os.getenv("OPCUA_URL", "")
 
 if os.name == "nt":
     _BASE = Path(os.getenv("LOCALAPPDATA", str(Path.home() / "AppData/Local")))
