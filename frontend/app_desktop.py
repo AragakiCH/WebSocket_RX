@@ -32,9 +32,81 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+# ===== Persistencia simple por máquina =====
+if os.name == "nt":
+    _BASE = Path(os.getenv("LOCALAPPDATA", str(Path.home() / "AppData/Local")))
+else:
+    _BASE = Path(os.getenv("XDG_DATA_HOME", str(Path.home() / ".local/share")))
+APP_DATA_DIR = _BASE / "PSI-Dashboard"
+APP_DATA_DIR.mkdir(parents=True, exist_ok=True)
+_CFG_PATH = APP_DATA_DIR / "config.json"
+
+def _cfg_read() -> dict:
+    try:
+        with open(_CFG_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def _cfg_write(d: dict):
+    try:
+        with open(_CFG_PATH, "w", encoding="utf-8") as f:
+            json.dump(d, f, indent=2)
+    except Exception:
+        pass
+
+def _port_in_use(host: str, port: int) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=0.2):
+            return True
+    except OSError:
+        return False
+
+def _pick_free_port(host: str) -> int:
+    # pide un ephemeral al SO
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.bind((host, 0))
+    port = s.getsockname()[1]
+    s.close()
+    return port
+
+def choose_persistent_ws_port(host: str = "127.0.0.1") -> int:
+    # 1) respeta variable de entorno si viene forzada
+    env_p = os.getenv("WS_PORT")
+    if env_p and env_p.isdigit():
+        return int(env_p)
+
+    cfg = _cfg_read()
+    saved = int(cfg.get("ws_port", 0) or 0)
+
+    # 2) si había uno guardado y está libre → úsalo
+    if saved and not _port_in_use(host, saved):
+        return saved
+
+    # 3) prueba algunos conocidos; si no, pide ephemeral
+    candidates = [8090, 8091, 8765, 5000]
+    for p in candidates:
+        if not _port_in_use(host, p):
+            cfg["ws_port"] = p
+            _cfg_write(cfg)
+            return p
+
+    p = _pick_free_port(host)
+    cfg["ws_port"] = p
+    _cfg_write(cfg)
+    return p
+
+def update_persisted_port(host: str, port: int):
+    """Si el guardado está ocupado, elige otro y actualiza archivo."""
+    if _port_in_use(host, port):
+        p = _pick_free_port(host)
+        cfg = _cfg_read(); cfg["ws_port"] = p; _cfg_write(cfg)
+        return p
+    return port
+
 
 HOST = os.getenv("WS_HOST", "127.0.0.1")
-PORT = int(os.getenv("WS_PORT", "8090"))
+PORT = choose_persistent_ws_port(HOST)
 WS_PATH = os.getenv("WS_PATH", "/ws")
 
 #URL del OPC UA del ctrlX para validar usuarios
@@ -57,6 +129,10 @@ def is_port_open(host: str, port: int) -> bool:
         return False
 
 def start_ws_server(project_root: Path, module_str: str, opcua_url: str, opcua_user: str, opcua_pwd: str) -> QProcess:
+
+    global PORT
+    PORT = update_persisted_port(HOST, PORT)
+
     proc = QProcess()
     env = QProcessEnvironment.systemEnvironment()
     env.insert("PYTHONUTF8", "1")
@@ -65,7 +141,7 @@ def start_ws_server(project_root: Path, module_str: str, opcua_url: str, opcua_u
     env.insert("OPCUA_PASSWORD", opcua_pwd)
     env.insert("UVICORN_MODULE", module_str)
     env.insert("WS_HOST", HOST)
-    env.insert("WS_PORT", str(PORT))
+    env.insert("WS_PORT", str(PORT)) 
     proc.setProcessEnvironment(env)
     proc.setProcessChannelMode(QProcess.ProcessChannelMode.ForwardedChannels)
 
@@ -233,6 +309,7 @@ class MainWindow(QMainWindow):
 
         # ====== WebSocket Client ======
         ws_url = f"ws://{HOST}:{PORT}{WS_PATH}"
+        self.statusBar().showMessage(f"WS → {ws_url}")
         self.ws_client = WSClient(ws_url, self)
         self.ws_client.data_received.connect(self._on_snapshot)
         self.ws_client.status_changed.connect(self._on_ws_status)
