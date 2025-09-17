@@ -4,9 +4,7 @@ import time
 
 class PLCReader:
     def __init__(self, url, user, password, buffer, buffer_size=100, on_sample=None):
-        self.url = url
-        self.user = user
-        self.password = password
+        self.url, self.user, self.password = url, user, password
         self.buffer = buffer
         self.buffer_size = buffer_size
         self.on_sample = on_sample
@@ -18,99 +16,72 @@ class PLCReader:
         except Exception:
             return node.get_value()
 
-    def children_all(self, node):
-        refs = [
-            ua.ObjectIds.HasComponent,
-            ua.ObjectIds.Organizes,
-            ua.ObjectIds.HasProperty
-        ]
-        kids = []
-        for r in refs:
-            kids += node.get_children(
-                refs=r,
-                nodeclassmask=ua.NodeClass.Variable | ua.NodeClass.Object
-            )
-        uniq = {k.nodeid.to_string(): k for k in kids}
-        return node.get_children()
-
     def browse_by_names(self, root, *names):
         cur = root
         for n in names:
-            for ch in self.children_all(cur):
+            found = None
+            for ch in cur.get_children():
                 if ch.get_browse_name().Name == n:
-                    cur = ch
-                    break
-            else:
-                # ← aquí ya no se lanza excepción, solo se imprime
+                    found = ch; break
+            if not found:
                 print("Por favor publique un proyecto desde la configuración de símbolos")
                 return None
+            cur = found
         return cur
 
     def plc_reader(self):
-        # Diccionario para traducir tipos OPC UA a nombres PLC comunes
         type_name_map = {
-            "Boolean": "BOOL",
-            "SByte": "SINT",
-            "Byte": "BYTE",
-            "Int16": "INT",
-            "UInt16": "UINT",
-            "Int32": "DINT",
-            "UInt32": "UDINT",
-            "Int64": "LINT",
-            "UInt64": "ULINT",
-            "Float": "REAL",
-            "Double": "LREAL",
-            "String": "STRING",
-            # Agrega más si tu PLC maneja otros tipos (DateTime, Guid, etc)
+            "Boolean":"BOOL","SByte":"SINT","Byte":"BYTE","Int16":"INT","UInt16":"UINT",
+            "Int32":"DINT","UInt32":"UDINT","Int64":"LINT","UInt64":"ULINT",
+            "Float":"REAL","Double":"LREAL","String":"STRING",
         }
 
-        cli = Client(self.url, timeout=2)
-        cli.set_user(self.user)
-        cli.set_password(self.password)
+        cli = Client(self.url, timeout=3.0)
+        if self.user: cli.set_user(self.user); cli.set_password(self.password)
         cli.connect()
         try:
             root = cli.get_root_node()
             plc_prg = self.browse_by_names(
-                root, "Objects", "Datalayer", "plc", "app",
-                "Application", "sym", "PLC_PRG"
+                root, "Objects","Datalayer","plc","app","Application","sym","PLC_PRG"
             )
             if plc_prg is None:
-                print("Por favor publique un proyecto desde la configuración de símbolos")
                 return
 
+            # 🔥 Cachea nodos, nombres y tipos (una vez)
+            nodes = plc_prg.get_children()
+            var_infos = []
+            for ch in nodes:
+                name = ch.get_browse_name().Name
+                try:
+                    vt = ua.VariantType(ch.get_data_type_as_variant_type()).name
+                except Exception:
+                    vt = "UNKNOWN"
+                var_infos.append((name, type_name_map.get(vt, vt), ch))
+
+            period_s = 0.02  # 50 Hz; pon 0.01 si quieres 100 Hz
             while True:
                 vars_by_type = {}
-                for ch in plc_prg.get_children():
-                    name = ch.get_browse_name().Name
+                for name, plc_type_name, node in var_infos:
                     try:
-                        val = self.read_value(ch)
-                        data_type = ch.get_data_type_as_variant_type()
-                        type_name = ua.VariantType(data_type).name
-                        plc_type_name = type_name_map.get(type_name, type_name)  # Si no está mapeado, usa el nombre OPC UA
-
-                        if plc_type_name not in vars_by_type:
-                            vars_by_type[plc_type_name] = {}
-                        vars_by_type[plc_type_name][name] = val
-
+                        val = self.read_value(node)
+                        bucket = vars_by_type.setdefault(plc_type_name, {})
+                        bucket[name] = val
                     except Exception as e:
-                        if "Error" not in vars_by_type:
-                            vars_by_type["Error"] = {}
-                        vars_by_type["Error"][name] = f"⛔ {e}"
+                        vars_by_type.setdefault("Error", {})[name] = f"⛔ {e}"
 
                 vars_by_type["timestamp"] = time.time()
 
+                # poda por tamaño propio (por compat)
                 if len(self.buffer) >= self.buffer_size:
-                    self.buffer.pop(0)
-                self.buffer.append(vars_by_type)
+                    try: self.buffer.pop(0)
+                    except Exception: pass
 
+                self.buffer.append(vars_by_type)   # ahora añade __seq__
                 if self.on_sample:
-                    try:
-                        self.on_sample(dict(vars_by_type))  # copia superficial
-                    except Exception as e:
-                        # no frenes el hilo por el logger
-                        print(f"[Excel log warn] {e}")
+                    try: self.on_sample(dict(vars_by_type))
+                    except Exception: pass
 
-                time.sleep(0.02)
+                time.sleep(period_s)
         finally:
             cli.disconnect()
 

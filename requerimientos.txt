@@ -1,7 +1,21 @@
 python3 -m pip install fastapi
 python3 -m pip install uvicorn
 python3 -m pip install opcua
+pip install -U cryptography
+python -m pip install --upgrade pip setuptools wheel
+python -m pip install pyinstaller pywin32-ctypes
+
 
 pip install fastapi uvicorn websockets opcua python-dateutil pytz lxml colorama six typing_extensions typing_inspection sniffio anyio starlette click
 python3 -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 wsl.exe -d Ubuntu
+
+
+# estando en la raíz
+deactivate  # si está activo
+Remove-Item -Recurse -Force .venv
+py -3.11 -m venv .venv   # o python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+pip install -r requirements.txt  # o instala fastapi, uvicorn, PyQt6, python-opcua, etc.
+python -m frontend.app_desktop

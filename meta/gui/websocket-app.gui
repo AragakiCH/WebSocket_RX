@@ -1,0 +1,7 @@
+{
+  "snapId":     "api-websocket-rx",
+  "pluginName": "WebSocket Demo",
+  "iconPath":   "meta/gui/icon.svg",
+  "baseUrl":    "/",
+  "type":       "iframe"
+}
