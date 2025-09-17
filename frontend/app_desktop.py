@@ -7,31 +7,119 @@ from PyQt6.QtCore import QObject, pyqtSignal, QUrl, QTimer
 import json
 import traceback
 from .login import LoginDialog
+import json, traceback, queue
+from pathlib import Path
+import os
+from importlib.util import find_spec
 
 
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+from utils.excel_logger import ExcelLogger
 from PyQt6.QtWidgets import (
     QApplication, QMessageBox, QMainWindow, QLabel, QWidget, QFrame,
     QHBoxLayout, QVBoxLayout, QLineEdit, QPushButton, QComboBox,
-    QDateEdit, QTableView, QSizePolicy
+    QDateEdit, QTableView, QSizePolicy, QFileDialog
 )
-from PyQt6.QtCore import Qt, QDate, QSize
+from PyQt6.QtCore import Qt, QDate, QSize, QSettings  
 from PyQt6.QtGui import QIcon, QStandardItemModel, QStandardItem
+import tempfile, shutil
+from datetime import datetime
 
 # al inicio de tu app_desktop_threaded.py
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+# ===== Persistencia simple por máquina =====
+if os.name == "nt":
+    _BASE = Path(os.getenv("LOCALAPPDATA", str(Path.home() / "AppData/Local")))
+else:
+    _BASE = Path(os.getenv("XDG_DATA_HOME", str(Path.home() / ".local/share")))
+APP_DATA_DIR = _BASE / "PSI-Dashboard"
+APP_DATA_DIR.mkdir(parents=True, exist_ok=True)
+_CFG_PATH = APP_DATA_DIR / "config.json"
+
+def _cfg_read() -> dict:
+    try:
+        with open(_CFG_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def _cfg_write(d: dict):
+    try:
+        with open(_CFG_PATH, "w", encoding="utf-8") as f:
+            json.dump(d, f, indent=2)
+    except Exception:
+        pass
+
+def _port_in_use(host: str, port: int) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=0.2):
+            return True
+    except OSError:
+        return False
+
+def _pick_free_port(host: str) -> int:
+    # pide un ephemeral al SO
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.bind((host, 0))
+    port = s.getsockname()[1]
+    s.close()
+    return port
+
+def choose_persistent_ws_port(host: str = "127.0.0.1") -> int:
+    # 1) respeta variable de entorno si viene forzada
+    env_p = os.getenv("WS_PORT")
+    if env_p and env_p.isdigit():
+        return int(env_p)
+
+    cfg = _cfg_read()
+    saved = int(cfg.get("ws_port", 0) or 0)
+
+    # 2) si había uno guardado y está libre → úsalo
+    if saved and not _port_in_use(host, saved):
+        return saved
+
+    # 3) prueba algunos conocidos; si no, pide ephemeral
+    candidates = [8090, 8091, 8765, 5000]
+    for p in candidates:
+        if not _port_in_use(host, p):
+            cfg["ws_port"] = p
+            _cfg_write(cfg)
+            return p
+
+    p = _pick_free_port(host)
+    cfg["ws_port"] = p
+    _cfg_write(cfg)
+    return p
+
+def update_persisted_port(host: str, port: int):
+    """Si el guardado está ocupado, elige otro y actualiza archivo."""
+    if _port_in_use(host, port):
+        p = _pick_free_port(host)
+        cfg = _cfg_read(); cfg["ws_port"] = p; _cfg_write(cfg)
+        return p
+    return port
+
 
 HOST = os.getenv("WS_HOST", "127.0.0.1")
-PORT = int(os.getenv("WS_PORT", "8090"))
+PORT = choose_persistent_ws_port(HOST)
 WS_PATH = os.getenv("WS_PATH", "/ws")
 
 #URL del OPC UA del ctrlX para validar usuarios
-OPCUA_URL = os.getenv(
-    "OPCUA_URL",
-    "opc.tcp://VirtualControl-1:4840,opc.tcp://192.168.18.6:4840"
-)
+OPCUA_URL = os.getenv("OPCUA_URL", "")
+
+if os.name == "nt":
+    _BASE = Path(os.getenv("LOCALAPPDATA", str(Path.home() / "AppData/Local")))
+else:
+    _BASE = Path(os.getenv("XDG_DATA_HOME", str(Path.home() / ".local/share")))
+
+APP_DATA_DIR = _BASE / "PSI-Dashboard"
+DEFAULT_EXPORT_DIR = APP_DATA_DIR / "exports"
+DEFAULT_EXPORT_DIR.mkdir(parents=True, exist_ok=True)
 
 def is_port_open(host: str, port: int) -> bool:
     try:
@@ -40,16 +128,32 @@ def is_port_open(host: str, port: int) -> bool:
     except OSError:
         return False
 
-def start_ws_server(project_root: Path, module_str: str) -> QProcess:
-    proc = QProcess()
-    proc.setProgram(sys.executable)
-    proc.setArguments(["-m", "uvicorn", module_str, "--host", HOST, "--port", str(PORT), "--log-level", "info"])
-    proc.setWorkingDirectory(str(project_root))
+def start_ws_server(project_root: Path, module_str: str, opcua_url: str, opcua_user: str, opcua_pwd: str) -> QProcess:
 
+    global PORT
+    PORT = update_persisted_port(HOST, PORT)
+
+    proc = QProcess()
     env = QProcessEnvironment.systemEnvironment()
     env.insert("PYTHONUTF8", "1")
+    env.insert("OPCUA_URL", opcua_url)
+    env.insert("OPCUA_USER", opcua_user)
+    env.insert("OPCUA_PASSWORD", opcua_pwd)
+    env.insert("UVICORN_MODULE", module_str)
+    env.insert("WS_HOST", HOST)
+    env.insert("WS_PORT", str(PORT)) 
     proc.setProcessEnvironment(env)
     proc.setProcessChannelMode(QProcess.ProcessChannelMode.ForwardedChannels)
+
+    if getattr(sys, "frozen", False):
+        from pathlib import Path as _P
+        proc.setWorkingDirectory(str(_P(sys.executable).parent))
+        proc.setProgram(sys.executable)
+        proc.setArguments(["--run-server"])
+    else:
+        proc.setWorkingDirectory(str(project_root))
+        proc.setProgram(sys.executable)
+        proc.setArguments(["-m", "uvicorn", module_str, "--host", HOST, "--port", str(PORT), "--log-level", "info"])
 
     proc.start()
     if not proc.waitForStarted(3000):
@@ -64,7 +168,7 @@ def start_ws_server(project_root: Path, module_str: str) -> QProcess:
     if not is_port_open(HOST, PORT):
         try: proc.kill()
         except Exception: pass
-        raise RuntimeError("Uvicorn no levantó el puerto. ¿8000 ocupado o import falló?")
+        raise RuntimeError("Uvicorn no levantó el puerto.")
 
     return proc
 
@@ -100,6 +204,10 @@ class WSClient(QObject):
 
     def _on_connected(self):
         self.status_changed.emit("open")
+        try:
+            self.sock.sendTextMessage('{"op":"subscribe"}')
+        except Exception:
+            pass
 
     def _on_disconnected(self):
         self.status_changed.emit("closed")
@@ -180,6 +288,9 @@ _UNITS = {
     "REAL.vib_crest":"","REAL.vib_g":"g","REAL.temp_C":"°C","REAL.pres_mA":"mA",
     "REAL.pres_lp":"bar","REAL.volt_V":"V","REAL.volt_lp":"V","REAL.volt_slope":"V/s",
 }
+
+ALLOWED_PREFIXES = ("REAL.", "INT.", "LREAL.", "BOOL.", "UDINT.")
+
 def unit_for(tag: str) -> str:
     return _UNITS.get(tag, "")
 
@@ -192,10 +303,13 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Dashboard")
         self.resize(1200, 800)
         self.setMinimumSize(1000, 680)
+        self._settings = QSettings("WebSocketRX", "PSI-Dashboard")
+        self._last_export_dir = str(DEFAULT_EXPORT_DIR.resolve())
         #self.setStyleSheet(build_styles())
 
         # ====== WebSocket Client ======
         ws_url = f"ws://{HOST}:{PORT}{WS_PATH}"
+        self.statusBar().showMessage(f"WS → {ws_url}")
         self.ws_client = WSClient(ws_url, self)
         self.ws_client.data_received.connect(self._on_snapshot)
         self.ws_client.status_changed.connect(self._on_ws_status)
@@ -260,7 +374,7 @@ class MainWindow(QMainWindow):
 
         btn_refresh = QPushButton("Refrescar"); btn_refresh.setObjectName("Ghost")
         btn_export  = QPushButton("Exportar a Excel"); btn_export.setObjectName("Primary")
-        btn_export.clicked.connect(self._export_placeholder)
+        btn_export.clicked.connect(self._toggle_export)
 
         btn_refresh.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_export.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -322,6 +436,16 @@ class MainWindow(QMainWindow):
 
 
         table.setModel(self._model)
+        self._selected_tags = set()
+        self._model.itemChanged.connect(self._on_item_changed)
+
+        # NUEVO: estado de exportación
+        self._exporting = False
+        self._export_queue = None
+        self._export_logger = None
+        self._export_path_tpl = None
+        self._export_session_dir = None 
+
         table.horizontalHeader().resizeSection(2, 120)
         table.horizontalHeader().setHighlightSections(False)
         table.setMinimumHeight(400)
@@ -356,10 +480,129 @@ class MainWindow(QMainWindow):
         }
 
     # Placeholder de export (solo UI)
-    def _export_placeholder(self):
-        QMessageBox.information(self, "Exportar a Excel",
-                                "Esta acción exportará la tabla a Excel.\n\n"
-                                "La UI ya está, el funcionamiento lo cableamos luego 😉")
+    def _toggle_export(self):
+        if not self._exporting:
+            if not self._selected_tags:
+                QMessageBox.warning(
+                    self, "Exportar a Excel",
+                    "Por favor selecciona al menos 1 dato (checkbox en la columna Tag)."
+                )
+                return
+
+            # === NO PREGUNTAMOS NADA: arrancamos YA en una carpeta temporal de sesión ===
+            sess_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+            base_tmp = Path(tempfile.gettempdir()) / "wsrx_export" / sess_id
+            base_tmp.mkdir(parents=True, exist_ok=True)
+            self._export_session_dir = base_tmp
+            self._export_path_tpl = str(base_tmp / "rt_{date}.xlsx")
+
+            self._export_queue = queue.Queue(maxsize=50000)
+            self._drops = 0
+            self._export_logger = ExcelLogger(
+                q=self._export_queue,
+                path_template=self._export_path_tpl,
+                flush_every=50,
+                flush_interval=0.2,
+                sheet_name="rt",
+                pretty_headers=True,
+                long_format=False,
+                with_table=True,
+                autosize=True,
+                save_checkpoint_s=2.0
+            )
+            self._export_logger.start()
+            self._exporting = True
+            self._widgets["btn_export"].setText("Detener exportación")
+            self.statusBar().showMessage(
+                f"Exportando → {self._export_session_dir} (temporal)."
+            )
+            QMessageBox.information(
+                self, "Exportación iniciada",
+                f"Exportando en tiempo real.\nArchivo temporal: {self._export_path_tpl}\n"
+                f"Al detener, te pediré dónde guardarlo."
+            )
+            return
+
+        # ====== Estabas exportando → vas a detener y elegir destino ======
+        try:
+            if self._export_logger:
+                self._export_logger.stop()   # espera a que cierre/flush
+                self._export_logger = None
+            self._export_queue = None
+        finally:
+            self._exporting = False
+            self._widgets["btn_export"].setText("Exportar a Excel")
+
+        # Junta los .xlsx generados en la sesión
+        files = sorted(Path(self._export_session_dir).glob("*.xlsx")) if self._export_session_dir else []
+        if not files:
+            QMessageBox.information(self, "Exportación detenida",
+                                    "No se generó ningún archivo durante la sesión.")
+            self._export_session_dir = None
+            return
+
+        # Si hay un solo archivo → Save As; si hay varios → elige carpeta y movemos todos
+        last_dir = self._settings.value("export/dir", str(DEFAULT_EXPORT_DIR.resolve()))
+
+        if len(files) == 1:
+            default_name = files[0].name  # ej. rt_2025-09-11.xlsx
+            dest_path, _ = QFileDialog.getSaveFileName(
+                self,
+                "Guardar Excel como…",
+                str(Path(last_dir) / default_name),
+                "Excel (*.xlsx)"
+            )
+            if not dest_path:
+                # si cancela, deja el archivo en temporal y avisa dónde quedó
+                QMessageBox.information(
+                    self, "Exportación detenida",
+                    f"Archivo quedó en temporal:\n{files[0]}"
+                )
+                return
+            self._settings.setValue("export/dir", str(Path(dest_path).parent))
+            try:
+                shutil.move(str(files[0]), dest_path)
+                QMessageBox.information(self, "Exportación guardada",
+                                        f"Guardado en:\n{dest_path}")
+            except Exception as e:
+                QMessageBox.critical(self, "Error al mover archivo",
+                                    f"No se pudo guardar:\n{e}\n\nOrigen:\n{files[0]}")
+        else:
+            # Múltiples archivos (rotación _02, _03, o varios días)
+            dest_dir = QFileDialog.getExistingDirectory(
+                self, "Selecciona carpeta destino para los Excel",
+                last_dir, QFileDialog.Option.ShowDirsOnly
+            )
+            if not dest_dir:
+                QMessageBox.information(
+                    self, "Exportación detenida",
+                    f"Archivos quedaron en temporal:\n{self._export_session_dir}"
+                )
+                return
+            self._settings.setValue("export/dir", dest_dir)
+            moved = 0
+            errors = []
+            for f in files:
+                try:
+                    shutil.move(str(f), str(Path(dest_dir) / f.name))
+                    moved += 1
+                except Exception as e:
+                    errors.append((f, e))
+            msg = f"Movidos {moved}/{len(files)} archivos a:\n{dest_dir}"
+            if errors:
+                msg += "\n\nErrores:\n" + "\n".join(f"- {p}: {err}" for p, err in errors)
+            QMessageBox.information(self, "Exportación guardada", msg)
+
+        # Limpia la carpeta temporal (si quedó vacía)
+        try:
+            if self._export_session_dir and self._export_session_dir.exists():
+                # intenta borrar la subcarpeta de sesión; ignora si no está vacía
+                if not any(self._export_session_dir.iterdir()):
+                    self._export_session_dir.rmdir()
+        except Exception:
+            pass
+        finally:
+            self._export_session_dir = None
         
     def _on_ws_status(self, status: str):
         self.statusBar().showMessage(f"WS {status}")
@@ -398,6 +641,15 @@ class MainWindow(QMainWindow):
             it_unit = QStandardItem(unit)                            # col 4
             it_grp  = QStandardItem(group.split('.',1)[0] if '.' in group else group)  # col 5
 
+
+
+            
+            # NUEVO: checkbox en Tag y guarda el tag completo en UserRole
+            it_tag.setCheckable(True)
+            it_tag.setCheckState(Qt.CheckState.Unchecked)
+            it_tag.setData(tag, Qt.ItemDataRole.UserRole)
+
+            # opcional: alinear valores a la derecha
             it_val.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
             # Inserta en el orden correcto: 0=Timestamp, 1=Check, 2=Tag, 3=Valor, 4=Unidad, 5=Grupo
@@ -425,7 +677,7 @@ class MainWindow(QMainWindow):
         for k, v in flat.items():
             if k == "timestamp":
                 continue
-            if not any(k.startswith(p) for p in ("REAL.", "INT.", "LREAL.", "BOOL.")):
+            if not any(k.startswith(p) for p in ALLOWED_PREFIXES):
                 continue
 
             if isinstance(v, float):
@@ -450,6 +702,41 @@ class MainWindow(QMainWindow):
         self._cards["last"].v.setText("ahora")
         self.statusBar().showMessage(f"WS open · último: {ts_str}")
 
+        # ===== Exportación en tiempo real
+        if self._exporting and self._export_queue is not None and self._selected_tags:
+            ts_epoch = flat.get("timestamp")
+            if not isinstance(ts_epoch, (int, float)):
+                import time as _t
+                ts_epoch = _t.time()
+            sample = {"timestamp": ts_epoch}
+            for tag in sorted(self._selected_tags):
+                sample[tag] = flat.get(tag, None)
+            try:
+                self._export_queue.put_nowait(sample)
+            except queue.Full:
+                # no bloquees la UI; cuenta la caída
+                self._drops = getattr(self, "_drops", 0) + 1
+
+        # status rico con progreso
+        rows = getattr(self._export_logger, "rows_written", 0) if self._export_logger else 0
+        drops = getattr(self, "_drops", 0)
+        self.statusBar().showMessage(f"WS open · último: {ts_str} · filas escritas: {rows} · drops: {drops}")
+
+    def _on_item_changed(self, item: QStandardItem):
+        # Solo nos importa la columna Tag
+        if item.column() != 1:
+            return
+        tag_full = item.data(Qt.ItemDataRole.UserRole)
+        if not tag_full:
+            # fallback: arma con Grupo + texto visible
+            row = item.row()
+            grp = self._model.item(row, 4).text()
+            tag_full = f"{grp}.{item.text()}" if grp else item.text()
+        if item.checkState() == Qt.CheckState.Checked:
+            self._selected_tags.add(tag_full)
+        else:
+            self._selected_tags.discard(tag_full)
+
     def closeEvent(self, e):
         try:
             if hasattr(self, "ws_client") and self.ws_client:
@@ -458,29 +745,50 @@ class MainWindow(QMainWindow):
                 self.server_proc.terminate()
                 if not self.server_proc.waitForFinished(1500):
                     self.server_proc.kill()
+            if getattr(self, "_exporting", False):
+                try:
+                    if self._export_logger:
+                        self._export_logger.stop()
+                except Exception:
+                    pass
+
         finally:
             super().closeEvent(e)
-            
 # ========== fin MainWindow ==========
-def main(after_user: str | None = None):
-    here = Path(__file__).resolve().parent
-    project_root = here.parent
+
+def _resolve_uvicorn_module() -> str:
+    # si ya viene desde el env (cuando relanzamos con --run-server), respétalo
+    mod = os.getenv("UVICORN_MODULE")
+    if mod:
+        return mod
+
+    # empaquetado: el módulo está dentro del exe
+    if getattr(sys, "frozen", False):
+        return "main:app"
+
+    # desarrollo: prueba imports reales
+    if find_spec("main"):
+        return "main:app"
+    if find_spec("WebSocket_RX.main"):
+        return "WebSocket_RX.main:app"
+
+    raise RuntimeError("No se encontró el módulo FastAPI (main:app).")
+
+
+def main(after_user: str | None = None, creds: dict | None = None):
+    project_root = Path(__file__).resolve().parent.parent
 
     # Detecta layout y arma el import-string correcto
-    if (project_root / "main.py").exists():
-        module_str = "main:app"
-    elif (project_root / "WebSocket_RX" / "main.py").exists():
-        module_str = "WebSocket_RX.main:app"
-    else:
-        QMessageBox.critical(None, "Estructura no encontrada",
-                             f"No encuentro main.py en {project_root} ni WebSocket_RX/main.py")
-        sys.exit(1)
+    module_str = _resolve_uvicorn_module()
 
     (project_root / "logs").mkdir(parents=True, exist_ok=True)
 
     # Arranca el WS
     try:
-        server_proc = start_ws_server(project_root, module_str)
+        url = creds.get("url") if creds else OPCUA_URL
+        usr = creds.get("user") if creds else ""
+        pwd = creds.get("pwd")  if creds else ""
+        server_proc = start_ws_server(project_root, module_str, url, usr, pwd)
     except Exception as e:
         QMessageBox.critical(None, "Error WebSocket", f"No se pudo iniciar el servidor:\n{e}")
         sys.exit(1)
@@ -493,16 +801,15 @@ def main(after_user: str | None = None):
     win.show()
     return win
 
-if __name__ == "__main__":
+def start_gui():
     app = QApplication(sys.argv)
 
-    # Rutas
+    # Rutas / estilos (tu mismo código actual)
     here = Path(__file__).resolve().parent
     project_root = here.parent
     qss_app   = project_root / "frontend" / "styles" / "app.qss"
     qss_login = project_root / "frontend" / "styles" / "login.qss"
 
-    # Cargar y unir estilos (primero dashboard, luego login; lo último gana)
     css_parts = []
     for path in (qss_app, qss_login):
         try:
@@ -510,18 +817,24 @@ if __name__ == "__main__":
                 css_parts.append(f.read())
         except Exception as e:
             print(f"[WARN] No se pudo cargar stylesheet {path}: {e}")
-
     if css_parts:
         app.setStyleSheet("\n\n".join(css_parts))
 
-    # ======= Primero mostrar login =======
-
+    # ======= Login =======
     login = LoginDialog(opcua_url=OPCUA_URL)
     if login.exec() == LoginDialog.DialogCode.Accepted:
         user = login.last_user or "usuario"
-        win = main(after_user=user)
+        creds = {
+            "user": getattr(login, "last_user", "") or "",
+            "pwd":  getattr(login, "last_pwd",  "") or "",
+            "url":  getattr(login, "good_url", OPCUA_URL) or OPCUA_URL,
+        }
+        win = main(after_user=user, creds=creds)
         sys.exit(app.exec())
     else:
         sys.exit(0)
+
+if __name__ == "__main__":
+    start_gui()
 
 
