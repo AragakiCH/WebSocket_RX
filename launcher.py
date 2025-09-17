@@ -45,6 +45,28 @@ def _safe_uvicorn_log_config():
         cfg["loggers"][name]["propagate"] = False
     return cfg
 
+
+def _resolve_asgi_app():
+    # Si te forzaron un módulo por env, úsalo tal cual (string tipo "pkg.module:app")
+    mod = os.getenv("UVICORN_MODULE")
+    if mod:
+        return mod
+
+    # 1) Proyecto clásico: main.py junto a launcher.py
+    try:
+        from main import app as _app
+        return _app
+    except Exception:
+        pass
+
+    # 2) (opcional) otro layout que a veces usabas
+    try:
+        from main import app as _app
+        return _app
+    except Exception as e:
+        logging.getLogger("launcher").exception("No pude importar FastAPI app", exc_info=e)
+        raise
+
 def run_server():
     import uvicorn
 
@@ -61,11 +83,13 @@ def run_server():
 
     module = os.getenv("UVICORN_MODULE", "main:app")
     host   = os.getenv("WS_HOST", "127.0.0.1")
-    port   = int(os.getenv("WS_PORT", "8090"))
+    port   = int(os.getenv("WS_PORT"))
+
+    app_target = _resolve_asgi_app()
 
     # Arranca uvicorn con logging seguro a archivo
     uvicorn.run(
-        module,
+        app_target, 
         host=host,
         port=port,
         log_level="info",
