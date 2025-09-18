@@ -8,6 +8,7 @@ from PyQt6.QtWidgets import (
 from opcua import Client
 from plc.discovery import discover_opcua_urls, pick_first_alive
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
 # === Hilo de discovery (no bloquea la UI) ===
@@ -29,8 +30,8 @@ class _DiscoveryWorker(QThread):
             return False
 
     def run(self):
-        env_list = [u.strip() for u in (self.env_urls or "").split(",") if u.strip()]
-        candidates = discover_opcua_urls(extra_candidates=env_list)
+        import socket
+        from opcua import Client
 
         def _parse(url: str):
             after = url.split("://", 1)[-1]
@@ -43,18 +44,68 @@ class _DiscoveryWorker(QThread):
             if h.startswith(("224.", "239.")) or h.endswith(".255"): return False
             return True
 
-        # 1º probamos candidatos NO loopback; luego loopback
-        ordered = [u for u in candidates if _valid_host(_parse(u)[0]) and _parse(u)[0] not in ("127.0.0.1", "localhost")]
-        ordered += [u for u in candidates if _parse(u)[0] in ("127.0.0.1", "localhost")]
+        # base + lo que venga por env
+        env_list  = [u.strip() for u in (self.env_urls or "").split(",") if u.strip()]
+        candidates = discover_opcua_urls(extra_candidates=env_list)
 
-        best = ""
-        for url in ordered:
+        # un barrido corto por la /24 local para encontrar el CORE físico
+        try:
+            addrs = socket.gethostbyname_ex(socket.gethostname())[2]
+            lan = next((ip for ip in addrs if ip.count(".")==3 and not ip.startswith(("127.","169.254."))), None)
+            if lan:
+                pref = ".".join(lan.split(".")[:3])
+                # primero “típicos”, luego algunos más
+                quick = [".60", ".1", ".2", ".32", ".6"]
+                sweep = [f"{pref}{sfx}" for sfx in quick] + [f"{pref}.{i}" for i in range(3,255,7)]
+                for h in sweep:
+                    candidates.append(f"opc.tcp://{h}:4840")
+        except Exception:
+            pass
+
+        # de-dup
+        candidates = list(dict.fromkeys(candidates))
+
+        meta = {}   # url -> (app_name, product_uri, is_virtual, has_meta)
+        alive = []
+        for url in candidates:
             host, port = _parse(url)
-            if self._tcp_alive(host, port, 0.25):
-                best = url
-                break
+            if not _valid_host(host):
+                continue
+            if not self._tcp_alive(host, port, 0.25):
+                continue
+            app = prod = ""; is_virtual = False; has_meta = False
+            try:
+                c = Client(url, timeout=1.2)
+                eps = c.connect_and_get_server_endpoints()
+                if eps:
+                    has_meta = True
+                    app  = (eps[0].Server.ApplicationName.Text or "").lower()
+                    prod = (eps[0].Server.ProductUri or "").lower()
+                    is_virtual = ("virtual" in app) or ("virtual" in prod)
+            except Exception:
+                pass
+            finally:
+                try: c.disconnect()
+                except Exception: pass
+            meta[url] = (app, prod, is_virtual, has_meta)
+            alive.append(url)
 
-        self.done.emit(candidates, best)
+        # ranking: primero los que tienen metadatos, luego físicos, luego no-loopback
+        def _rank(url: str):
+            host, _ = _parse(url)
+            app, prod, is_virtual, has_meta = meta.get(url, ("","",False,False))
+            is_loop = host in ("127.0.0.1", "localhost")
+            return (
+                0 if has_meta else 1,     # preferir con meta
+                1 if is_virtual else 0,   # preferir físico
+                1 if is_loop else 0,      # no loopback
+                host                      # estable por host
+            )
+
+        ordered = sorted(alive, key=_rank)
+        best = ordered[0] if ordered else ""
+
+        self.done.emit(ordered, best)
 
 
 # === OPC UA check en un hilo (sin discovery) ===
@@ -229,10 +280,29 @@ class LoginDialog(QDialog):
         self._candidates = candidates or []
         if best_url:
             self._good_url = best_url
-            # reordena para que el check use primero la buena
             urls = [best_url] + [u for u in self._candidates if u != best_url]
             self.opcua_url = ",".join(urls)
-            self.lbl_detect.setText(f"Detectado: {best_url}")
+
+            # --- obtener nombre del servidor y si es virtual
+            label = "ctrlX CORE"
+            try:
+                c = Client(best_url, timeout=1.2)
+                eps = c.connect_and_get_server_endpoints()
+                if eps:
+                    app = (eps[0].Server.ApplicationName.Text or "")
+                    prod = (eps[0].Server.ProductUri or "")
+                    is_virtual = ("virtual" in app.lower()) or ("virtual" in prod.lower())
+                    label = "ctrlX COREvirtual" if is_virtual else "ctrlX CORE"
+            except Exception:
+                # si no hay meta y es loopback, lo tratamos como virtual
+                host = best_url.split("://",1)[-1].split(":")[0]
+                if host in ("127.0.0.1", "localhost"):
+                    label = "ctrlX COREvirtual"
+            finally:
+                try: c.disconnect()
+                except Exception: pass
+
+            self.lbl_detect.setText(f"Detectado: {best_url} ({label})")
         else:
             msg = "Sin PLC detectado automáticamente."
             if self._candidates:

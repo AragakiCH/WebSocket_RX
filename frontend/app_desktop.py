@@ -55,15 +55,16 @@ def _cfg_write(d: dict):
     except Exception:
         pass
 
+# --- puertos (reemplazar lo que tienes) ---
 def _port_in_use(host: str, port: int) -> bool:
     try:
-        with socket.create_connection((host, port), timeout=0.2):
+        with socket.create_connection((host, port), timeout=0.25):
             return True
     except OSError:
         return False
 
 def _pick_free_port(host: str) -> int:
-    # pide un ephemeral al SO
+    # Pide un puerto al SO (aleatorio libre)
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.bind((host, 0))
     port = s.getsockname()[1]
@@ -71,33 +72,25 @@ def _pick_free_port(host: str) -> int:
     return port
 
 def choose_persistent_ws_port(host: str = "127.0.0.1") -> int:
-    # 1) respeta variable de entorno si viene forzada
+    # 1) si viene por env, respétalo
     env_p = os.getenv("WS_PORT")
     if env_p and env_p.isdigit():
         return int(env_p)
 
+    # 2) si ya tenías uno guardado y está libre → úsalo
     cfg = _cfg_read()
     saved = int(cfg.get("ws_port", 0) or 0)
-
-    # 2) si había uno guardado y está libre → úsalo
     if saved and not _port_in_use(host, saved):
         return saved
 
-    # 3) prueba algunos conocidos; si no, pide ephemeral
-    candidates = [8090, 8091, 8765, 5000]
-    for p in candidates:
-        if not _port_in_use(host, p):
-            cfg["ws_port"] = p
-            _cfg_write(cfg)
-            return p
-
+    # 3) pide uno aleatorio al SO y persiste
     p = _pick_free_port(host)
     cfg["ws_port"] = p
     _cfg_write(cfg)
     return p
 
 def update_persisted_port(host: str, port: int):
-    """Si el guardado está ocupado, elige otro y actualiza archivo."""
+    # Si el guardado está ocupado, toma otro aleatorio y persiste
     if _port_in_use(host, port):
         p = _pick_free_port(host)
         cfg = _cfg_read(); cfg["ws_port"] = p; _cfg_write(cfg)
@@ -156,14 +149,16 @@ def start_ws_server(project_root: Path, module_str: str, opcua_url: str, opcua_u
         proc.setArguments(["-m", "uvicorn", module_str, "--host", HOST, "--port", str(PORT), "--log-level", "info"])
 
     proc.start()
-    if not proc.waitForStarted(3000):
+    if not proc.waitForStarted(5000):
         raise RuntimeError("No se pudo iniciar uvicorn (timeout).")
 
-    t0 = time.time()
-    while time.time() - t0 < 6:
+    deadline = time.time() + 25.0
+    wait = 0.1
+    while time.time() < deadline:
         if is_port_open(HOST, PORT):
-            break
-        time.sleep(0.1)
+            return proc
+        time.sleep(wait)
+        wait = min(wait * 1.5, 1.2)
 
     if not is_port_open(HOST, PORT):
         try: proc.kill()
@@ -386,13 +381,11 @@ class MainWindow(QMainWindow):
         cards = QWidget()
         cards_lay = QHBoxLayout(cards); cards_lay.setSpacing(12); cards_lay.setContentsMargins(0,0,0,0)
         card1 = StatCard("Muestras (hoy)", "0")
-        card2 = StatCard("Alarmas activas", "0")
-        card3 = StatCard("Prom. Temperatura", "—")
         card4 = StatCard("Última actualización", "—")
-        cards_lay.addWidget(card1); cards_lay.addWidget(card2); cards_lay.addWidget(card3); cards_lay.addWidget(card4)
+        cards_lay.addWidget(card1); cards_lay.addWidget(card4)
 
         # <-- agrega esto:
-        self._cards = {"samples": card1, "alarms": card2, "temp": card3, "last": card4}
+        self._cards = {"samples": card1, "last": card4}
 
 
         # --- Filtros ---
@@ -403,16 +396,11 @@ class MainWindow(QMainWindow):
         txt_search.setClearButtonEnabled(True)
         txt_search.setMinimumWidth(220)
 
-        cb_tipo = QComboBox()
-        cb_tipo.addItems(["Todos", "Temperatura", "Presión", "Vibración", "Flujo"])
-
-        de_from = QDateEdit(); de_from.setCalendarPopup(True); de_from.setDate(QDate.currentDate().addDays(-1))
-        de_to   = QDateEdit(); de_to.setCalendarPopup(True); de_to.setDate(QDate.currentDate())
 
         btn_apply = QPushButton("Aplicar"); btn_apply.setObjectName("Ghost")
         btn_apply.setCursor(Qt.CursorShape.PointingHandCursor)
 
-        for w in (txt_search, cb_tipo, de_from, de_to, btn_apply):
+        for w in (txt_search, btn_apply):
             f_lay.addWidget(w)
         f_lay.addStretch(1)
 
@@ -427,11 +415,12 @@ class MainWindow(QMainWindow):
         self._model = QStandardItemModel()
         self._cells_by_tag = {}
         self._row_cap = 10000 
-        self._model.setHorizontalHeaderLabels(["Timestamp", "", "Tag", "Valor", "Unidad", "Grupo"])
+        self._model.setHorizontalHeaderLabels(["Timestamp", "Tag", "Valor", "Unidad", "Grupo", ""])
 
         table.setModel(self._model)
-        table.setColumnWidth(1, 36)     # col 1 = checkbox al costado del Tag
-        table.horizontalHeader().resizeSection(2, 160)  # col 2 = Tag
+        # ancho del Tag y del checkbox (última columna)
+        table.horizontalHeader().resizeSection(1, 160)  # Tag
+        table.setColumnWidth(5, 36)                      # Checkbox
 
 
 
@@ -473,9 +462,6 @@ class MainWindow(QMainWindow):
             "btn_export": btn_export,
             "btn_refresh": btn_refresh,
             "txt_search": txt_search,
-            "cb_tipo": cb_tipo,
-            "de_from": de_from,
-            "de_to": de_to,
             "table": table,
         }
 
@@ -615,55 +601,62 @@ class MainWindow(QMainWindow):
             QStandardItem(unit),
             QStandardItem(group.split('.',1)[0] if '.' in group else group),
         ]
+        for it in row:
+            it.setTextAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
+            self._model.appendRow(row)
+            
         self._model.appendRow(row)
         if self._model.rowCount() > self._row_cap:
             self._model.removeRow(0)
 
     def _upsert_row(self, ts_str: str, tag: str, val: str, unit: str, group: str):
         """
-        Mantiene una sola fila por variable (p.ej. REAL.vib_rms).
-        Si existe, solo refresca Timestamp y Valor (y Unidad si cambiara).
+        Mantiene una sola fila por variable.
+        Orden de columnas: 0=Timestamp, 1=Tag, 2=Valor, 3=Unidad, 4=Grupo, 5=Checkbox
         """
         rec = self._cells_by_tag.get(tag)
         if rec is None:
-    # === Columna 1: checkbox ===
-            it_chk = QStandardItem()
-            it_chk.setEditable(False)
-            it_chk.setCheckable(True)
-            it_chk.setCheckState(Qt.CheckState.Unchecked)
-            it_chk.setSelectable(False)
-            it_chk.setText("")
+            # --- crea items ---
+            it_ts   = QStandardItem(ts_str)
+            it_tag  = QStandardItem(tag.split('.', 1)[-1])
+            it_val  = QStandardItem(val)
+            it_unit = QStandardItem(unit)
+            it_grp  = QStandardItem(group.split('.', 1)[0] if '.' in group else group)
 
-            # === Resto de columnas ===
-            it_ts   = QStandardItem(ts_str)                          # col 0
-            it_tag  = QStandardItem(tag.split('.', 1)[-1])           # col 2
-            it_val  = QStandardItem(val)                             # col 3
-            it_unit = QStandardItem(unit)                            # col 4
-            it_grp  = QStandardItem(group.split('.',1)[0] if '.' in group else group)  # col 5
-
-
-
-            
-            # NUEVO: checkbox en Tag y guarda el tag completo en UserRole
-            it_tag.setCheckable(True)
-            it_tag.setCheckState(Qt.CheckState.Unchecked)
+            # Guarda el tag completo en el item Tag (para exportación/lookup),
+            # pero SIN hacerlo checkable.
+            it_tag.setCheckable(False)
             it_tag.setData(tag, Qt.ItemDataRole.UserRole)
 
-            # opcional: alinear valores a la derecha
-            it_val.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            for it in (it_ts, it_tag, it_val, it_unit, it_grp):
+                it.setTextAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
 
-            # Inserta en el orden correcto: 0=Timestamp, 1=Check, 2=Tag, 3=Valor, 4=Unidad, 5=Grupo
-            self._model.appendRow([it_ts, it_chk, it_tag, it_val, it_unit, it_grp])
+            # Checkbox SOLO en la última columna
+            it_chk = QStandardItem()
+            it_chk.setEditable(False)
+            it_chk.setSelectable(False)
+            it_chk.setCheckable(True)
+            it_chk.setCheckState(Qt.CheckState.Unchecked)
+            it_chk.setText("")
+            it_chk.setTextAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
 
-            # Guarda referencias en el mismo orden
-            self._cells_by_tag[tag] = (it_ts, it_chk, it_tag, it_val, it_unit, it_grp)
+            # Inserta la fila
+            self._model.appendRow([it_ts, it_tag, it_val, it_unit, it_grp, it_chk])
+
+            # Guarda referencias
+            self._cells_by_tag[tag] = (it_ts, it_tag, it_val, it_unit, it_grp, it_chk)
         else:
-            it_ts, it_chk, it_tag, it_val, it_unit, it_grp = rec
+            it_ts, it_tag, it_val, it_unit, it_grp, it_chk = rec
             it_ts.setText(ts_str)
             if it_val.text() != val:
                 it_val.setText(val)
             if unit and it_unit.text() != unit:
                 it_unit.setText(unit)
+            # opcional: si el grupo pudiera cambiar
+            # new_grp = group.split('.',1)[0] if '.' in group else group
+            # if it_grp.text() != new_grp:
+            #     it_grp.setText(new_grp)
+
 
 
 
@@ -692,8 +685,6 @@ class MainWindow(QMainWindow):
         self._cards["samples"].v.setText(f"{self._samples_today:,}".replace(",", "."))
         vib_rms = flat.get("REAL.vib_rms", 0.0)
         window_ready = flat.get("BOOL.window_ready", True)
-        alarms = 1 if (not window_ready and isinstance(vib_rms,(int,float)) and vib_rms > 0.5) else 0
-        self._cards["alarms"].v.setText(str(alarms))
         temp = flat.get("REAL.temp_C")
         if isinstance(temp,(int,float)):
             self._temp_n += 1
@@ -723,19 +714,26 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"WS open · último: {ts_str} · filas escritas: {rows} · drops: {drops}")
 
     def _on_item_changed(self, item: QStandardItem):
-        # Solo nos importa la columna Tag
-        if item.column() != 1:
+        # Solo reaccionar al checkbox (columna 5)
+        if item.column() != 5:
             return
-        tag_full = item.data(Qt.ItemDataRole.UserRole)
+
+        row = item.row()
+        it_tag = self._model.item(row, 1)  # columna Tag
+        tag_full = it_tag.data(Qt.ItemDataRole.UserRole) if it_tag else None
+
         if not tag_full:
-            # fallback: arma con Grupo + texto visible
-            row = item.row()
-            grp = self._model.item(row, 4).text()
-            tag_full = f"{grp}.{item.text()}" if grp else item.text()
+            # Fallback: Grupo (col 4) + nombre de Tag (col 1)
+            grp_item = self._model.item(row, 4)
+            grp = grp_item.text() if grp_item else ""
+            tag_name = it_tag.text() if it_tag else ""
+            tag_full = f"{grp}.{tag_name}" if grp else tag_name
+
         if item.checkState() == Qt.CheckState.Checked:
             self._selected_tags.add(tag_full)
         else:
             self._selected_tags.discard(tag_full)
+
 
     def closeEvent(self, e):
         try:
@@ -754,6 +752,9 @@ class MainWindow(QMainWindow):
 
         finally:
             super().closeEvent(e)
+            
+
+
 # ========== fin MainWindow ==========
 
 def _resolve_uvicorn_module() -> str:
