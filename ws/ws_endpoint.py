@@ -6,15 +6,26 @@ log = logging.getLogger("ws")
 
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
-    log.info("connection open")
-    last_seq = None
+    print("[WS] cliente conectado")
+
     try:
+        last_seq = None
+
         while True:
-            batch = data_buffer.after(last_seq)
-            if batch:
-                for snap in batch:
-                    await websocket.send_text(json.dumps(snap))
-                last_seq = batch[-1]["__seq__"]
-            await asyncio.sleep(0.01)  # ~100 Hz de “pull”; ajusta si quieres
+            sample = data_buffer.latest()
+            if sample:
+                seq = sample.get("__seq__")
+                if seq != last_seq:
+                    await websocket.send_json(sample)
+                    last_seq = seq
+
+            await asyncio.sleep(0.2)  # 5 Hz para UI
+
     except WebSocketDisconnect:
-        log.info("connection closed")
+        print("[WS] cliente desconectado")
+    except Exception as e:
+        print("[WS] error:", e)
+        try:
+            await websocket.close()
+        except:
+            pass

@@ -1,6 +1,6 @@
 name: api-websocket-rx
 base: core22
-version: '1.0.0'
+version: "1.0.0"
 summary: WebSocket API para ctrlX CORE
 description: |
   API con WebSocket y FastAPI para conectarse al PLC vía OPC UA.
@@ -9,48 +9,27 @@ grade: stable
 confinement: strict
 
 architectures:
-  - amd64
-  - arm64
-
-extensions:
-  - ctrlx-automation-sdk/extension-snap
+  - build-on: amd64
+  - build-on: arm64
 
 parts:
-  # 1) Parte Python / API
   websocket-api:
     plugin: python
     source: .
-    python-packages:
-      - fastapi
-      - uvicorn[standard]
-      - websockets
-      - opcua
-      - python-dateutil
-      - pytz
-      - lxml
-      - colorama
-      - six
-      - typing_extensions
-      - sniffio
-      - anyio
-      - starlette
-      - click
+    python-requirements:
+      - requirements.txt
     stage:
       - frontend/**
       - bin/websocket-wrapper.sh
+      - main.py
+      - plc/**
+      - ws/**
+      - utils/**
     override-build: |
       snapcraftctl build
       mkdir -p $SNAPCRAFT_PART_INSTALL/bin
       cp bin/websocket-wrapper.sh $SNAPCRAFT_PART_INSTALL/bin/
       chmod +x $SNAPCRAFT_PART_INSTALL/bin/websocket-wrapper.sh
-
-  # 2) Parte GUI para el plugin lateral
-  gui-plugin:
-    plugin: dump
-    source: meta/gui
-    stage:
-      - websocket-app.gui
-      - icon.svg
 
 apps:
   websocket-api:
@@ -60,11 +39,3 @@ apps:
     plugs:
       - network
       - network-bind
-    
-  websocket-demo-ui:
-    # no tiene que ejecutar nada realmente; el CORE se encarga de abrir el iframe
-    command: echo Starter para GUI
-    plugs: [ network ]             # o los plugs que necesites
-    gui: websocket-app.gui        # <<< aquí apuntas a tu descriptor meta/gui/websocket-app.gui
-    daemon: simple                 # puede ser manual, simple, etc.
-    restart-condition: never

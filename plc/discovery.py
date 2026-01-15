@@ -26,27 +26,19 @@ def _probe_tcp(host: str, port: int = PORT, timeout: float = TMO) -> bool:
     except Exception:
         return False
 
-def _probe_opcua(url: str, user: str = "", password: str = "", timeout: float = 2.0) -> Tuple[bool, str]:
-    host = url.split("://", 1)[-1].split(":")[0]
-    try:
-        from opcua import Client
-    except Exception:
-        return (_probe_tcp(host, PORT, timeout), "")
+def _probe_opcua(url: str, user="", password="", timeout=2.0):
+    from opcua import Client
     try:
         c = Client(url, timeout=timeout)
         if user:
-            c.set_user(user); c.set_password(password)
+            c.set_user(user)
+            c.set_password(password)
         c.connect()
-        app_name = ""
-        try:
-            eps = c.get_endpoints() or []
-            if eps and getattr(eps[0].Server.ApplicationName, "Text", ""):
-                app_name = eps[0].Server.ApplicationName.Text
-        finally:
-            c.disconnect()
-        return (True, app_name)
-    except Exception:
-        return (False, "")
+        c.disconnect()
+        return True, ""
+    except Exception as e:
+        log.warning("OPC UA FAIL %s -> %r", url, e)
+        return False, ""
 
 def _cidrs_from_env() -> List[ipaddress.IPv4Network]:
     out = []
@@ -138,37 +130,23 @@ def _limit_hosts(net: ipaddress.IPv4Network) -> Iterable[str]:
 def discover_opcua_urls(extra_candidates: Iterable[str] = ()) -> List[str]:
     candidates: List[str] = []
 
-    # Siempre probamos localhost primero (COREvirtual)
-    candidates += [f"opc.tcp://127.0.0.1:{PORT}", f"opc.tcp://localhost:{PORT}"]
-
-    # 1) Candidatos del usuario (ENV) tienen prioridad absoluta
+    # 1) Candidatos del usuario (ENV) prioridad absoluta
     for x in extra_candidates:
         if x.strip():
             candidates.append(x.strip())
 
-    # 2) mDNS (si existe)
+    # 2) localhost después (sirve para COREvirtual)
+    candidates += [f"opc.tcp://127.0.0.1:{PORT}", f"opc.tcp://localhost:{PORT}"]
+
+    # 3) mDNS
     candidates += _mdns_discover()
 
-    # 3) Vecinos ARP (muy rápido)
+    # 4) Vecinos ARP
     arp_ips = _neighbors_arp()
     candidates += [f"opc.tcp://{ip}:{PORT}" for ip in arp_ips]
 
-    # 4) Subredes locales (psutil + ENV), limitando hosts para no morir en /16 o /12
-    nets = _local_networks()
-    pool = ThreadPoolExecutor(max_workers=256)
-    futures = { pool.submit(_probe_tcp, ip, PORT, TMO): ip
-                for net in nets for ip in _limit_hosts(net) }
-    hits = []
-    for fut in as_completed(futures):
-        try:
-            ok = fut.result()
-            if ok:
-                hits.append(futures[fut])
-        except Exception:
-            pass
-    pool.shutdown(wait=True)
-    candidates += [f"opc.tcp://{ip}:{PORT}" for ip in hits]
-
+    # 5) Subredes locales
+    ...
     return _unique(candidates)
 
 def pick_first_alive(user: str = "", password: str = "", ordered_urls: Iterable[str] = ()) -> Tuple[str|None, List[str]]:

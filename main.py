@@ -14,6 +14,7 @@ try:
     from utils.excel_logger import ExcelLogger
 except ImportError:
     ExcelLogger = None
+import time
 
 LOG_TO_EXCEL = os.getenv("LOG_TO_EXCEL", "true").lower() == "false"
 
@@ -23,13 +24,13 @@ def _parse_opcua_urls(val: str) -> list[str]:
         return []
     return [u.strip() for u in val.split(",") if u.strip()]
 
-URL_ENV  = os.getenv("OPCUA_URL", "")  # admite varias separadas por coma
+URL_ENV  = os.getenv("OPCUA_URL", "opc.tcp://192.168.17.60:4840")  # admite varias separadas por coma
 URLS_ENV = _parse_opcua_urls(URL_ENV)
 URLS    = _parse_opcua_urls(URL_ENV)
-URL     = URLS[0] if URLS else "opc.tcp://192.168.100.31:4840"  # ← hotfix: toma la 1ª
+URL     = URLS[0] if URLS else "opc.tcp://192.168.17.60:4840"  # ← hotfix: toma la 1ª
 
-USER     = os.getenv("OPCUA_USER", "")
-PASSWORD = os.getenv("OPCUA_PASSWORD", "")
+USER     = os.getenv("OPCUA_USER", "boschrexroth")
+PASSWORD = os.getenv("OPCUA_PASSWORD", "boschrexroth")
 
 log = logging.getLogger("psi.main")
 log.info("PLC URL=%s  USER set=%s", URL_ENV, bool(USER))
@@ -65,24 +66,38 @@ def push_to_log(sample: dict):
 def _startup():
     global plc
 
-    # 1) Construimos lista de candidatos (env → mDNS → redes locales)
-    ordered = discover_opcua_urls(extra_candidates=URLS_ENV)
+    log = logging.getLogger("uvicorn")
 
-    # 2) Elegimos el primero que esté vivo
-    url, candidates = pick_first_alive(user=USER, password=PASSWORD, ordered_urls=ordered)
+    # 0) URLS directas del ENV (prioridad absoluta)
+    env_urls = URLS_ENV[:]  # ya parseadas
+    if not env_urls:
+        env_urls = ["opc.tcp://192.168.17.60:4840"]
+
+    # 1) Primero intenta SOLO las del ENV (sin escanear nada)
+    url, tried = pick_first_alive(user=USER, password=PASSWORD, ordered_urls=env_urls)
     if not url:
-        logging.getLogger("uvicorn").error("No se encontró ningún servidor OPC UA vivo. Candidatos: %s", candidates)
-        return
+        log.warning("OPCUA_URL no respondió. Haré discovery. ENV=%s", env_urls)
 
-    logging.getLogger("uvicorn").info("OPC UA elegido: %s  (candidatos: %s)", url, candidates[:6])
+        # 2) Fallback: discovery + las del ENV adelante
+        ordered = discover_opcua_urls(extra_candidates=env_urls)
+
+        url, candidates = pick_first_alive(user=USER, password=PASSWORD, ordered_urls=ordered)
+        if not url:
+            log.error("No se encontró OPC UA vivo. Candidatos: %s", candidates)
+            # deja rastro visible en UI
+            push_to_log({"Error": {"opcua": "offline"}, "timestamp": time.time()})
+            return
+
+    log.info("OPC UA elegido: %s", url)
 
     try:
         plc = PLCReader(url, USER, PASSWORD, data_buffer,
                         buffer_size=100, on_sample=push_to_log)
         plc.start()
-        logging.getLogger("uvicorn").info("PLCReader iniciado OK contra %s.", url)
+        log.info("PLCReader iniciado OK.")
     except Exception as e:
-        logging.getLogger("uvicorn").exception("PLCReader no inició: %s", e)
+        log.exception("PLCReader no inició: %s", e)
+        push_to_log({"Error": {"plc_reader": str(e)}, "timestamp": time.time()})
 
 @app.on_event("shutdown")
 def _shutdown():

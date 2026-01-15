@@ -47,7 +47,7 @@ function updateTable(data) {
 // --- conectar WebSocket ---
 btnConnect.addEventListener("click", () => {
   const proto = location.protocol === "https:" ? "wss" : "ws";
-  const url = "ws://127.0.0.1:8010/ws";
+  const url = `${proto}://${location.host}/ws`;   // <-- usa el puerto actual (8000)
   console.log("Conectando WS a:", url);
   ws = new WebSocket(url);
 
