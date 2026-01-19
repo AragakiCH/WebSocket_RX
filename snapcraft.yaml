@@ -14,10 +14,8 @@ architectures:
 
 parts:
   websocket-api:
-    plugin: python
+    plugin: dump
     source: .
-    python-requirements:
-      - requirements.snap.txt
     stage:
       - main.py
       - plc/**
@@ -28,13 +26,9 @@ parts:
       - requirements.snap.txt
     override-build: |
       craftctl default
-
-      # Crear venv dentro del snap (en install/)
       python3 -m venv $CRAFT_PART_INSTALL/venv
       $CRAFT_PART_INSTALL/venv/bin/pip install -U pip setuptools wheel
       $CRAFT_PART_INSTALL/venv/bin/pip install -r requirements.snap.txt
-
-      # Wrapper
       mkdir -p $CRAFT_PART_INSTALL/bin
       cp bin/websocket-wrapper.sh $CRAFT_PART_INSTALL/bin/
       chmod +x $CRAFT_PART_INSTALL/bin/websocket-wrapper.sh

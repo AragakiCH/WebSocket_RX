@@ -10,4 +10,5 @@ export LOG_TO_EXCEL="${LOG_TO_EXCEL:-false}"
 export API_HOST="${API_HOST:-0.0.0.0}"
 export API_PORT="${API_PORT:-8000}"
 
-exec python3 -m uvicorn main:app --host "$API_HOST" --port "$API_PORT"
+export PYTHONPATH="$SNAP/app"
+exec "$SNAP/bin/python3" -m uvicorn main:app --app-dir "$SNAP/app" --host 0.0.0.0 --port 8000
