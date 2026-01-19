@@ -34,12 +34,14 @@ parts:
 
     override-build: |
       craftctl default
-      python3 -m venv $CRAFT_PART_INSTALL/venv
-      $CRAFT_PART_INSTALL/venv/bin/pip install -U pip setuptools wheel
-      $CRAFT_PART_INSTALL/venv/bin/pip install -r requirements.snap.txt
-      mkdir -p $CRAFT_PART_INSTALL/bin
-      cp bin/websocket-wrapper.sh $CRAFT_PART_INSTALL/bin/
-      chmod +x $CRAFT_PART_INSTALL/bin/websocket-wrapper.sh
+
+      # 1) venv dentro del snap (en install/)
+      python3 -m venv "$CRAFT_PART_INSTALL/venv"
+      "$CRAFT_PART_INSTALL/venv/bin/pip" install -U pip setuptools wheel
+      "$CRAFT_PART_INSTALL/venv/bin/pip" install -r "$CRAFT_PART_INSTALL/requirements.snap.txt"
+
+      # 2) asegúrate que el wrapper sea ejecutable (ya está en install/bin por dump+stage)
+      chmod +x "$CRAFT_PART_INSTALL/bin/websocket-wrapper.sh"
 
 apps:
   websocket-api:
