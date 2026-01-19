@@ -17,7 +17,7 @@ parts:
     plugin: python
     source: .
     python-requirements:
-      - requirements.txt
+      - requirements.snap.txt
     stage:
       - frontend/**
       - bin/websocket-wrapper.sh
