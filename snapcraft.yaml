@@ -18,30 +18,32 @@ parts:
     source: .
 
     build-packages:
-      - python3.10-venv
+      - python3
+      - python3-venv
       - python3-pip
-      - python3.10-dev
+      - python3-dev
       - build-essential
-
-    stage:
-      - main.py
-      - plc/**
-      - ws/**
-      - utils/**
-      - frontend/**
-      - bin/websocket-wrapper.sh
-      - requirements.snap.txt
 
     override-build: |
       craftctl default
 
-      # 1) venv dentro del snap (en install/)
+      # 0) Limpieza/estructura clara dentro del snap
+      mkdir -p "$CRAFT_PART_INSTALL/app"
+      mkdir -p "$CRAFT_PART_INSTALL/bin"
+
+      # 1) Copiar TU app (sin depender de stage)
+      cp -f main.py "$CRAFT_PART_INSTALL/app/"
+      cp -r ws plc utils frontend "$CRAFT_PART_INSTALL/app/" 2>/dev/null || true
+      cp -f requirements.snap.txt "$CRAFT_PART_INSTALL/app/"
+
+      # 2) Copiar wrapper
+      cp -f bin/websocket-wrapper.sh "$CRAFT_PART_INSTALL/bin/"
+      chmod +x "$CRAFT_PART_INSTALL/bin/websocket-wrapper.sh"
+
+      # 3) Crear venv dentro del snap
       python3 -m venv "$CRAFT_PART_INSTALL/venv"
       "$CRAFT_PART_INSTALL/venv/bin/pip" install -U pip setuptools wheel
-      "$CRAFT_PART_INSTALL/venv/bin/pip" install -r "$CRAFT_PART_INSTALL/requirements.snap.txt"
-
-      # 2) asegúrate que el wrapper sea ejecutable (ya está en install/bin por dump+stage)
-      chmod +x "$CRAFT_PART_INSTALL/bin/websocket-wrapper.sh"
+      "$CRAFT_PART_INSTALL/venv/bin/pip" install -r "$CRAFT_PART_INSTALL/app/requirements.snap.txt"
 
 apps:
   websocket-api:
