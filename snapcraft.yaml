@@ -16,6 +16,13 @@ parts:
   websocket-api:
     plugin: dump
     source: .
+
+    build-packages:
+      - python3.10-venv
+      - python3-pip
+      - python3.10-dev
+      - build-essential
+
     stage:
       - main.py
       - plc/**
@@ -24,6 +31,7 @@ parts:
       - frontend/**
       - bin/websocket-wrapper.sh
       - requirements.snap.txt
+
     override-build: |
       craftctl default
       python3 -m venv $CRAFT_PART_INSTALL/venv
