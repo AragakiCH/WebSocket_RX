@@ -9,7 +9,6 @@ export LOG_TO_EXCEL="${LOG_TO_EXCEL:-false}"
 export API_HOST="${API_HOST:-0.0.0.0}"
 export API_PORT="${API_PORT:-8000}"
 
-# Tu app está en $SNAP/app
 export PYTHONPATH="$SNAP/app:$PYTHONPATH"
 
 exec "$SNAP/venv/bin/python" -m uvicorn main:app --app-dir "$SNAP/app" --host "$API_HOST" --port "$API_PORT"
