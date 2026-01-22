@@ -10,6 +10,7 @@ from plc.opc_client import PLCReader
 from plc.buffer import data_buffer
 from plc.discovery import discover_opcua_urls, pick_first_alive
 import logging
+import threading
 try:
     from utils.excel_logger import ExcelLogger
 except ImportError:
@@ -68,36 +69,54 @@ def _startup():
 
     log = logging.getLogger("uvicorn")
 
-    # 0) URLS directas del ENV (prioridad absoluta)
-    env_urls = URLS_ENV[:]  # ya parseadas
-    if not env_urls:
-        env_urls = ["opc.tcp://192.168.17.60:4840"]
+    env_urls = URLS_ENV[:] or ["opc.tcp://192.168.17.60:4840"]
 
-    # 1) Primero intenta SOLO las del ENV (sin escanear nada)
-    url, tried = pick_first_alive(user=USER, password=PASSWORD, ordered_urls=env_urls)
-    if not url:
-        log.warning("OPCUA_URL no respondió. Haré discovery. ENV=%s", env_urls)
+    def supervisor():
+        nonlocal env_urls
+        backoff = 1.0
+        max_backoff = 30.0
 
-        # 2) Fallback: discovery + las del ENV adelante
-        ordered = discover_opcua_urls(extra_candidates=env_urls)
+        while True:
+            try:
+                # Si ya hay reader corriendo, no hagas nada
+                if plc is not None:
+                    time.sleep(2.0)
+                    continue
 
-        url, candidates = pick_first_alive(user=USER, password=PASSWORD, ordered_urls=ordered)
-        if not url:
-            log.error("No se encontró OPC UA vivo. Candidatos: %s", candidates)
-            # deja rastro visible en UI
-            push_to_log({"Error": {"opcua": "offline"}, "timestamp": time.time()})
-            return
+                # 1) intenta solo ENV
+                url, tried = pick_first_alive(user=USER, password=PASSWORD, ordered_urls=env_urls)
 
-    log.info("OPC UA elegido: %s", url)
+                # 2) fallback discovery
+                if not url:
+                    log.warning("OPCUA_URL no respondió. Haré discovery. ENV=%s", env_urls)
+                    ordered = discover_opcua_urls(extra_candidates=env_urls)
+                    url, candidates = pick_first_alive(user=USER, password=PASSWORD, ordered_urls=ordered)
 
-    try:
-        plc = PLCReader(url, USER, PASSWORD, data_buffer,
-                        buffer_size=100, on_sample=push_to_log)
-        plc.start()
-        log.info("PLCReader iniciado OK.")
-    except Exception as e:
-        log.exception("PLCReader no inició: %s", e)
-        push_to_log({"Error": {"plc_reader": str(e)}, "timestamp": time.time()})
+                if url:
+                    log.info("OPC UA elegido: %s", url)
+                    # Arranca reader (ahora sí tu loop de reintento sirve)
+                    try:
+                        _plc = PLCReader(url, USER, PASSWORD, data_buffer,
+                                         buffer_size=100, on_sample=push_to_log)
+                        _plc.start()
+                        plc = _plc
+                        log.info("PLCReader iniciado OK.")
+                        backoff = 1.0
+                    except Exception as e:
+                        log.exception("PLCReader no inició: %s", e)
+                        push_to_log({"Error": {"plc_reader": str(e)}, "timestamp": time.time()})
+
+                else:
+                    log.error("No se encontró OPC UA vivo todavía. Reintento en %.1fs", backoff)
+                    push_to_log({"Error": {"opcua": "offline"}, "timestamp": time.time()})
+                    time.sleep(backoff)
+                    backoff = min(backoff * 2.0, max_backoff)
+
+            except Exception as e:
+                log.exception("Supervisor OPCUA reventó: %s", e)
+                time.sleep(5.0)
+
+    threading.Thread(target=supervisor, daemon=True).start()
 
 @app.on_event("shutdown")
 def _shutdown():
