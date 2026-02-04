@@ -66,7 +66,7 @@ def push_to_log(sample: dict):
 @app.on_event("startup")
 def _startup():
     log = logging.getLogger("uvicorn")
-    env_urls = URLS_ENV[:] or ["opc.tcp://192.168.17.60:4840"]
+    env_urls = URLS_ENV[:] #or ["opc.tcp://192.168.17.60:4840"]
 
     def supervisor():
         global plc  # ✅ CLAVE: vas a leer y asignar plc aquí
