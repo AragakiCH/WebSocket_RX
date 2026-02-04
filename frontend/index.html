@@ -1,89 +1,89 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <title>ctrlX WebSocket UI</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: sans-serif;
-      background: #f5f7fa;
-      color: #333;
-      padding: 1rem 2rem;
-    }
-    header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 1.5rem;
-    }
-    header h1 {
-      font-size: 1.75rem;
-      color: #004e7c;
-    }
-    .btn {
-      background-color: #00b0f0;
-      border: none;
-      color: white;
-      padding: 0.6rem 1rem;
-      margin-left: 0.5rem;
-      cursor: pointer;
-      border-radius: 0.25rem;
-      font-size: 0.95rem;
-    }
-    .btn:disabled {
-      background-color: #8fbcd4;
-      cursor: not-allowed;
-    }
-    main {
-      background: white;
-      border-radius: 0.5rem;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
-      padding: 1rem;
-    }
-    .status {
-      font-style: italic;
-      color: #666;
-      margin-bottom: 1rem;
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-    }
-    th, td {
-      padding: 0.75rem 1rem;
-      text-align: left;
-      border-bottom: 1px solid #e0e0e0;
-    }
-    th {
-      background: #f0f8ff;
-      color: #004e7c;
-      font-weight: 600;
-    }
-    tr:hover td {
-      background: #f9f9f9;
-    }
-  </style>
-</head>
-<body>
-  <header>
-    <h1>ctrlX WebSocket Demo</h1>
-    <div>
-      <button id="btnConnect" class="btn">Obtener Datos del PLC</button>
-      <button id="btnDisconnect" class="btn" disabled>Desconectar</button>
-    </div>
-  </header>
+  <head>
+    <meta charset="UTF-8" />
+    <title>ctrlX WebSocket UI</title>
 
-  <main>
-    <div id="status" class="status">WebSocket desconectado.</div>
-    <table id="data-table">
-      <thead>
-        <tr><th>Tag</th><th>Valor</th></tr>
-      </thead>
-      <tbody></tbody>
-    </table>
-  </main>
+    <!-- CSS externo -->
+    <link rel="stylesheet" href="index.css" />
+  </head>
 
-  <script src="app.js" defer></script>
-</body>
+  <body>
+    <!-- MODAL -->
+    <!-- <div id="setupOverlay" class="modal-overlay">
+      <div
+        class="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="setupTitle"
+      >
+        <div class="modal-header">
+          <h2 id="setupTitle">Configurar conexión</h2>
+        </div>
+
+        <div class="modal-body">
+          <div class="field">
+            <label for="ipInput">IP del ctrlX / PLC</label>
+            <input
+              id="ipInput"
+              type="text"
+              placeholder="Ej: 192.168.1.10"
+              value="192.168.1.10"
+              autocomplete="off"
+            />
+          </div>
+
+          <div class="field">
+            <label for="archSelect">Arquitectura</label>
+            <select id="archSelect">
+              <option value="ARM64">ARM64</option>
+              <option value="AMD64">AMD64</option>
+            </select>
+            <div class="hint">que target usar.</div>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button id="btnContinue" class="btn">Continuar</button>
+        </div>
+      </div>
+    </div> -->
+
+    <header>
+      <h1>ctrlX WebSocket Demo</h1>
+      <div>
+        <button id="btnConnect" class="btn" disabled>
+          Obtener Datos del PLC
+        </button>
+        <button id="btnDisconnect" class="btn" disabled>Desconectar</button>
+      </div>
+    </header>
+
+    <main>
+      <div class="toolbar">
+        <div id="status" class="status">WebSocket desconectado.</div>
+
+        <button id="btnExport" class="btn btn-secondary" disabled>
+          Exportar a Excel
+        </button>
+      </div>
+
+      <table id="data-table">
+        <thead>
+          <tr>
+            <th>Tag</th>
+            <th>Valor</th>
+            <th class="col-sel">
+              <input type="checkbox" id="chkAll" title="Seleccionar todo" />
+            </th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </main>
+
+    <!-- JS externo (orden importa) -->
+    <!-- <script src="./js/modal.js" defer></script> -->
+    <script src="./js/app.js" defer></script>
+  </body>
 </html>
