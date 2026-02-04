@@ -26,7 +26,7 @@ def _parse_opcua_urls(val: str) -> list[str]:
 URL_ENV  = os.getenv("OPCUA_URL", "")  # admite varias separadas por coma
 URLS_ENV = _parse_opcua_urls(URL_ENV)
 URLS    = _parse_opcua_urls(URL_ENV)
-URL     = URLS[0] if URLS else "opc.tcp://192.168.100.31:4840"  # ← hotfix: toma la 1ª
+URL     = URLS[0] if URLS else "opc.tcp://192.168.17.60:4840"  # ← hotfix: toma la 1ª
 
 USER     = os.getenv("OPCUA_USER", "")
 PASSWORD = os.getenv("OPCUA_PASSWORD", "")
