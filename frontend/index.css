@@ -239,6 +239,7 @@ tbody td:last-child{
   outline: none;
   background: rgba(0,0,0,0.20);
   color: rgba(234,240,255,0.90);
+  margin-bottom: 10px;
 }
 
 .field input::placeholder{ color: rgba(234,240,255,0.35); }
@@ -313,5 +314,40 @@ tbody td:last-child{
   accent-color: #58C7FF;
   cursor: pointer;
 }
+
+/*Estilo login*/
+
+.pass-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 14px;              /* 👈 separación real */
+  align-items: stretch;   /* 👈 misma altura */
+}
+
+
+.pass-row{
+  display: grid;
+  grid-template-columns: 1fr auto;
+  column-gap: 14px;
+  align-items: center;            /* mejor que stretch aquí */
+}
+
+.pass-row #passInput{
+  height: 44px;
+  margin: 0 !important;           /* mata el margin-bottom global */
+}
+
+.pass-row #btnTogglePass{
+  height: 44px;
+  padding: 0 16px;
+  min-width: 92px;                /* para que no aplaste */
+  white-space: nowrap;
+}
+
+
+
+
+
+
 
 

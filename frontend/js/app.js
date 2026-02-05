@@ -4,7 +4,22 @@ const btnDisconnect = document.getElementById("btnDisconnect");
 const statusDiv = document.getElementById("status");
 const tbody = document.querySelector("#data-table tbody");
 
-btnConnect.disabled = false;   // 👈 AQUI
+btnConnect.disabled = true;
+btnDisconnect.disabled = true;
+
+// función para habilitar cuando hay login
+function enableApp() {
+  btnConnect.disabled = false;
+  // btnDisconnect se habilita cuando WS abre, como ya lo tienes
+}
+
+// si ya está logueado, habilita
+if (sessionStorage.getItem("auth_ok") === "1") enableApp();
+
+// escucha evento cuando login.js diga OK
+window.addEventListener("auth:ok", () => {
+  enableApp();
+});
 
 // NUEVO
 const btnExport = document.getElementById("btnExport");
@@ -112,7 +127,7 @@ chkAll?.addEventListener("change", () => {
       c.checked = true;
       const row = c.closest("tr");
       const tag = row?.children?.[0]?.textContent; // ✅ Tag está en col 0
-      if (tag) selectedTags.add(tag); 
+      if (tag) selectedTags.add(tag);
     });
   } else {
     allChecks.forEach((c) => (c.checked = false));
@@ -122,7 +137,6 @@ chkAll?.addEventListener("change", () => {
   setExportEnabled();
   updateChkAllState(allChecks.length);
 });
-
 
 // ✅ Exportar (CSV que Excel abre)
 btnExport?.addEventListener("click", () => {
@@ -156,7 +170,6 @@ btnExport?.addEventListener("click", () => {
 
   URL.revokeObjectURL(url);
 });
-
 
 // --- conectar WebSocket ---
 btnConnect.addEventListener("click", () => {
