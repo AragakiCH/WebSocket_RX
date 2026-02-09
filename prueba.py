@@ -1,29 +1,15 @@
 from opcua import Client
-import traceback
 
-URL = "opc.tcp://192.168.17.60:4840"
+url = "opc.tcp://192.168.17.60:4840"
+c = Client(url, timeout=3)
 
-c = Client(URL, timeout=5.0)
+c.connect()
+eps = c.connect_and_get_server_endpoints()
+c.disconnect()
 
-# Si tienes user/pass, descomenta:
-c.set_user("boschrexroth")
-c.set_password("boschrexroth")
-
-try:
-    c.connect()
-    print("✅ CONNECT OK")
-
-    eps = c.get_endpoints()
-    print("Endpoints publicados:")
-    for e in eps:
-        print(" -", e.EndpointUrl, "|", e.SecurityPolicyUri, "|", e.SecurityMode)
-
-except Exception as e:
-    print("❌ ERROR:", repr(e))
-    traceback.print_exc()
-
-finally:
-    try:
-        c.disconnect()
-    except:
-        pass
+for e in eps:
+    print("Endpoint:", e.EndpointUrl)
+    print("  SecurityPolicyUri:", e.SecurityPolicyUri)
+    print("  SecurityMode:", e.SecurityMode)
+    print("  UserTokens:", [p.TokenType.name for p in e.UserIdentityTokens])
+    print("----")

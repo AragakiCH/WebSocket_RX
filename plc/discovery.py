@@ -2,13 +2,14 @@
 from __future__ import annotations
 import os, re, socket, ipaddress, logging, subprocess, sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Iterable, List, Tuple
+from typing import Iterable, List, Tuple, Literal
 
 log = logging.getLogger("psi.discovery")
 
 PORT = int(os.getenv("DISCOVERY_PORT", "4840"))
 TMO  = float(os.getenv("DISCOVERY_TIMEOUT_S", "0.25"))
 MAX_PER_NET = int(os.getenv("DISCOVERY_MAX_HOSTS_PER_NET", "256"))
+ProbeStatus = Literal["OK", "AUTH_INVALID", "DOWN"]
 
 def _unique(seq: Iterable[str]) -> List[str]:
     seen = set(); out = []
@@ -26,7 +27,8 @@ def _probe_tcp(host: str, port: int = PORT, timeout: float = TMO) -> bool:
     except Exception:
         return False
 
-def _probe_opcua(url: str, user="", password="", timeout=2.0):
+
+def _probe_opcua(url: str, user="", password="", timeout=2.0) -> Tuple[ProbeStatus, str]:
     from opcua import Client
     try:
         c = Client(url, timeout=timeout)
@@ -35,10 +37,12 @@ def _probe_opcua(url: str, user="", password="", timeout=2.0):
             c.set_password(password)
         c.connect()
         c.disconnect()
-        return True, ""
+        return "OK", ""
     except Exception as e:
-        log.warning("OPC UA FAIL %s -> %r", url, e)
-        return False, ""
+        msg = repr(e)
+        if "BadIdentityTokenInvalid" in msg:
+            return "AUTH_INVALID", msg
+        return "DOWN", msg
 
 def _cidrs_from_env() -> List[ipaddress.IPv4Network]:
     out = []
@@ -130,30 +134,34 @@ def _limit_hosts(net: ipaddress.IPv4Network) -> Iterable[str]:
 def discover_opcua_urls(extra_candidates: Iterable[str] = ()) -> List[str]:
     candidates: List[str] = []
 
-    # 1) Candidatos del usuario (ENV) prioridad absoluta
     for x in extra_candidates:
-        if x.strip():
+        if x and x.strip():
             candidates.append(x.strip())
 
-    # 2) localhost después (sirve para COREvirtual)
     candidates += [f"opc.tcp://127.0.0.1:{PORT}", f"opc.tcp://localhost:{PORT}"]
 
-    # 3) mDNS
     candidates += _mdns_discover()
 
-    # 4) Vecinos ARP
     arp_ips = _neighbors_arp()
     candidates += [f"opc.tcp://{ip}:{PORT}" for ip in arp_ips]
 
-    # 5) Subredes locales
-    ...
+    # 👇 subredes locales (limitadas)
+    for net in _local_networks():
+        for host in _limit_hosts(net):
+            candidates.append(f"opc.tcp://{host}:{PORT}")
+
     return _unique(candidates)
 
-def pick_first_alive(user: str = "", password: str = "", ordered_urls: Iterable[str] = ()) -> Tuple[str|None, List[str]]:
-    urls = list(ordered_urls)
-    for url in urls:
-        ok, app = _probe_opcua(url, user, password, timeout=2.0)
-        log.info("Probe %s -> %s %s", url, "OK" if ok else "FAIL", f"({app})" if app else "")
-        if ok:
-            return url, urls
-    return None, urls
+def pick_first_alive_any(ordered_urls):
+    for url in ordered_urls:
+        st, _ = _probe_opcua(url, user="", password="")
+        if st in ("OK", "AUTH_INVALID"):
+            return url
+    return None
+
+def pick_first_alive_auth(user, password, ordered_urls):
+    for url in ordered_urls:
+        st, info = _probe_opcua(url, user=user, password=password)
+        if st == "OK":
+            return url
+    return None

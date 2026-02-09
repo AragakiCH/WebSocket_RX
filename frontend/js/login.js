@@ -47,21 +47,30 @@ if (STORE.getItem("auth_ok") === "1") {
 }
 
 // submit login
-loginForm?.addEventListener("submit", (e) => {
+loginForm?.addEventListener("submit", async (e) => {
   e.preventDefault();
-
   const u = (userInput?.value || "").trim();
   const p = passInput?.value || "";
 
-  if (u === HARD_USER && p === HARD_PASS) {
-    STORE.setItem("auth_ok", "1");
-    STORE.setItem("auth_user", u);
-    hideLogin();
-    return;
-  }
+  try {
+    const r = await fetch("/api/opcua/login", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ user: u, password: p })
+    });
 
-  if (loginErr) {
-    loginErr.textContent = "Usuario o contraseña incorrectos.";
+    if (!r.ok) {
+      const msg = await r.text();
+      loginErr.textContent = msg || "No pude autenticar OPC UA.";
+      loginErr.hidden = false;
+      return;
+    }
+
+    // listo: backend ya tiene las credenciales en RAM
+    STORE.setItem("auth_ok","1"); // solo para UI
+    hideLogin();
+  } catch {
+    loginErr.textContent = "Servidor no responde.";
     loginErr.hidden = false;
   }
 });
