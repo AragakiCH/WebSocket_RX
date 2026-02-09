@@ -9,45 +9,57 @@
   </head>
 
   <body>
-    <!-- MODAL -->
-    <!-- <div id="setupOverlay" class="modal-overlay">
+    <!-- LOGIN MODAL -->
+    <div id="loginOverlay" class="modal-overlay">
       <div
         class="modal"
         role="dialog"
         aria-modal="true"
-        aria-labelledby="setupTitle"
+        aria-labelledby="loginTitle"
       >
         <div class="modal-header">
-          <h2 id="setupTitle">Configurar conexión</h2>
+          <h2 id="loginTitle">Iniciar sesión</h2>
+          <div class="modal-sub">Panel de datos · ctrlX</div>
         </div>
 
-        <div class="modal-body">
+        <form id="loginForm" class="modal-body">
           <div class="field">
-            <label for="ipInput">IP del ctrlX / PLC</label>
+            <label for="userInput">Usuario</label>
             <input
-              id="ipInput"
+              id="userInput"
               type="text"
-              placeholder="Ej: 192.168.1.10"
-              value="192.168.1.10"
-              autocomplete="off"
+              placeholder="Ej: admin"
+              autocomplete="username"
+              required
             />
           </div>
 
           <div class="field">
-            <label for="archSelect">Arquitectura</label>
-            <select id="archSelect">
-              <option value="ARM64">ARM64</option>
-              <option value="AMD64">AMD64</option>
-            </select>
-            <div class="hint">que target usar.</div>
+            <label for="passInput">Contraseña</label>
+            <div class="pass-row">
+              <input
+                id="passInput"
+                type="password"
+                placeholder="Ej: 1234"
+                autocomplete="current-password"
+                required
+              />
+              <!-- <button type="button" id="btnTogglePass" class="btn btn-ghost">
+                Mostrar
+              </button> -->
+            </div>
           </div>
-        </div>
 
-        <div class="modal-footer">
-          <button id="btnContinue" class="btn">Continuar</button>
-        </div>
+          <div id="loginErr" class="login-error" hidden></div>
+
+          <div class="modal-footer">
+            <button id="btnLogin" class="btn" type="submit">Ingresar</button>
+          </div>
+
+          <div class="login-hint">Tip: <b>admin</b> / <b>1234</b></div>
+        </form>
       </div>
-    </div> -->
+    </div>
 
     <header>
       <h1>ctrlX WebSocket Demo</h1>
@@ -85,5 +97,6 @@
     <!-- JS externo (orden importa) -->
     <!-- <script src="./js/modal.js" defer></script> -->
     <script src="./js/app.js" defer></script>
+    <script src="./js/login.js"></script>
   </body>
 </html>
