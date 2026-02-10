@@ -131,6 +131,20 @@ def _limit_hosts(net: ipaddress.IPv4Network) -> Iterable[str]:
             yield str(host)
         i += 1
 
+def _hostname_candidates() -> List[str]:
+    # Hostnames típicos
+    names = ["ctrlX-CORE"]
+    # VirtualControl-1..4 (ajusta el rango si quieres)
+    for i in range(1, 5):
+        names.append(f"VirtualControl-{i}")
+        names.append(f"VirtualControl {i}")  # por si alguien lo escribe así (lo normal es con guion)
+    # limpia espacios (porque "VirtualControl 1" en URL es inválido sin encode)
+    out = []
+    for n in names:
+        n2 = n.replace(" ", "-")  # IMPORTANT: en URL no metas espacios
+        out.append(n2)
+    return _unique(out)
+
 def discover_opcua_urls(extra_candidates: Iterable[str] = ()) -> List[str]:
     candidates: List[str] = []
 
@@ -138,14 +152,21 @@ def discover_opcua_urls(extra_candidates: Iterable[str] = ()) -> List[str]:
         if x and x.strip():
             candidates.append(x.strip())
 
+    # 0) hostnames conocidos (antes de escanear red)
+    for h in _hostname_candidates():
+        candidates.append(f"opc.tcp://{h}:{PORT}")
+
+    # 1) local
     candidates += [f"opc.tcp://127.0.0.1:{PORT}", f"opc.tcp://localhost:{PORT}"]
 
+    # 2) mDNS
     candidates += _mdns_discover()
 
+    # 3) ARP neighbors
     arp_ips = _neighbors_arp()
     candidates += [f"opc.tcp://{ip}:{PORT}" for ip in arp_ips]
 
-    # 👇 subredes locales (limitadas)
+    # 4) subredes
     for net in _local_networks():
         for host in _limit_hosts(net):
             candidates.append(f"opc.tcp://{host}:{PORT}")
@@ -154,10 +175,21 @@ def discover_opcua_urls(extra_candidates: Iterable[str] = ()) -> List[str]:
 
 def pick_first_alive_any(ordered_urls):
     for url in ordered_urls:
+        host, port = _parse_host_port_from_opcua_url(url)
+        if not _probe_tcp(host, port):
+            continue
         st, _ = _probe_opcua(url, user="", password="")
         if st in ("OK", "AUTH_INVALID"):
             return url
     return None
+
+def _parse_host_port_from_opcua_url(url: str) -> Tuple[str, int]:
+    x = url.split("://", 1)[-1]
+    hostport = x.split("/", 1)[0]
+    if ":" in hostport:
+        h, p = hostport.split(":", 1)
+        return h, int(p)
+    return hostport, PORT
 
 def pick_first_alive_auth(user, password, ordered_urls):
     for url in ordered_urls:

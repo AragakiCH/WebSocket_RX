@@ -8,7 +8,7 @@ from ws.ws_endpoint import websocket_endpoint
 from ws.ws_write_endpoint import websocket_write_endpoint
 from plc.opc_client import PLCReader
 from plc.buffer import data_buffer
-from plc.discovery import discover_opcua_urls, pick_first_alive_any
+from plc.discovery import discover_opcua_urls, pick_first_alive_auth, pick_first_alive_any
 import logging
 from pydantic import BaseModel
 from fastapi import HTTPException
@@ -34,6 +34,15 @@ def _parse_opcua_urls(val: str) -> list[str]:
         return []
     return [u.strip() for u in val.split(",") if u.strip()]
 
+def _unique(seq):
+    seen = set()
+    out = []
+    for x in seq:
+        if x not in seen:
+            seen.add(x)
+            out.append(x)
+    return out
+
 IS_EMBEDDED = os.getenv("PSI_EMBEDDED", "false").lower() == "true"
 
 # URL_ENV = os.getenv(
@@ -41,14 +50,19 @@ IS_EMBEDDED = os.getenv("PSI_EMBEDDED", "false").lower() == "true"
 #     "opc.tcp://127.0.0.1:4840,opc.tcp://localhost:4840, opc.tcp://192.168.17.60:4840"
 # )
 
-URL_ENV = (
-    "opc.tcp://127.0.0.1:4840,opc.tcp://localhost:4840"
-    if IS_EMBEDDED
-    else "opc.tcp://192.168.17.60:4840"
-)
+DEFAULT_URL_ENV = ",".join([
+    "opc.tcp://127.0.0.1:4840",
+    "opc.tcp://localhost:4840",
+    "opc.tcp://ctrlX-CORE:4840",
+    "opc.tcp://VirtualControl-1:4840",
+    "opc.tcp://VirtualControl-2:4840",
+    "opc.tcp://VirtualControl-3:4840",
+    "opc.tcp://VirtualControl-4:4840",
+])
+
+URL_ENV = os.getenv("OPCUA_URL", DEFAULT_URL_ENV)
 URLS_ENV = _parse_opcua_urls(URL_ENV)
-URLS    = _parse_opcua_urls(URL_ENV)
-URL     = URLS[0] if URLS else "opc.tcp://192.168.17.60:4840"  # ← hotfix: toma la 1ª
+URL = URLS_ENV[0] if URLS_ENV else "opc.tcp://127.0.0.1:4840"
 
 class OpcuaLoginIn(BaseModel):
     user: str
@@ -186,27 +200,37 @@ def opcua_login(body: OpcuaLoginIn):
 
     u = body.user.strip()
     p = body.password
-    url = (body.url or URL).strip()
 
     if not u or not p:
         raise HTTPException(400, "Faltan credenciales")
 
-    # ✅ valida de verdad
-    try:
-        c = Client(url, timeout=5.0)
-        c.set_user(u)
-        c.set_password(p)
-        c.connect()
-        c.disconnect()
-    except Exception as e:
-        raise HTTPException(status_code=401, detail=f"OPC UA login falló: {e}")
+    # 1) candidatos
+    candidates = []
+    if body.url and body.url.strip():
+        candidates.append(body.url.strip())
 
-    # ✅ guarda
+    candidates += URLS_ENV[:]  # env
+    candidates = [c.strip() for c in candidates if c.strip()]
+
+    # 2) discovery (incluye ctrlX-CORE y VirtualControl-1..4 con el cambio)
+    discovered = discover_opcua_urls(extra_candidates=candidates)
+    # prioriza los primeros
+    ordered = _unique(candidates + discovered)
+
+    # 3) elige el que realmente autentica
+    winner = pick_first_alive_auth(u, p, ordered)
+    if not winner:
+        raise HTTPException(
+            status_code=401,
+            detail={"error": "No pude autenticar contra ningún OPC UA candidato.", "tried": ordered[:25]},
+        )
+
+    # 4) guarda
     CURRENT_OPCUA_USER = u
     CURRENT_OPCUA_PASS = p
-    CURRENT_OPCUA_URL = url
+    CURRENT_OPCUA_URL = winner
 
-    # ✅ reinicia reader para que el supervisor lo levante con nuevas credenciales
+    # 5) reinicia reader
     try:
         if plc:
             plc.stop()
@@ -214,7 +238,7 @@ def opcua_login(body: OpcuaLoginIn):
     except Exception:
         pass
 
-    return {"ok": True}
+    return {"ok": True, "url": winner}
 
 @app.get("/api/opcua/endpoints")
 def opcua_endpoints(url: str | None = None):
