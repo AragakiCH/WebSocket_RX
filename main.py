@@ -17,6 +17,7 @@ from fastapi.responses import FileResponse
 from fastapi import Body
 from utils.rt_export_manager import RtExportManager
 import os
+from fastapi import Request
 from opcua import Client
 import threading
 try:
@@ -195,42 +196,37 @@ def _shutdown():
         pass
 
 @app.post("/api/opcua/login")
-def opcua_login(body: OpcuaLoginIn):
+def opcua_login(body: OpcuaLoginIn, request: Request):
     global CURRENT_OPCUA_USER, CURRENT_OPCUA_PASS, CURRENT_OPCUA_URL, plc
 
     u = body.user.strip()
     p = body.password
-
     if not u or not p:
         raise HTTPException(400, "Faltan credenciales")
 
-    # 1) candidatos
     candidates = []
     if body.url and body.url.strip():
         candidates.append(body.url.strip())
 
-    candidates += URLS_ENV[:]  # env
-    candidates = [c.strip() for c in candidates if c.strip()]
+    # host por donde estás entrando a la UI (IP o nombre)
+    host_hdr = request.headers.get("host", "")
+    host_only = host_hdr.split(":")[0].strip() if host_hdr else ""
+    if host_only:
+        candidates.append(f"opc.tcp://{host_only}:4840")
 
-    # 2) discovery (incluye ctrlX-CORE y VirtualControl-1..4 con el cambio)
+    # env + discovery
+    candidates += URLS_ENV[:]
     discovered = discover_opcua_urls(extra_candidates=candidates)
-    # prioriza los primeros
-    ordered = _unique(candidates + discovered)
+    ordered = _unique([c.strip() for c in (candidates + discovered) if c and c.strip()])
 
-    # 3) elige el que realmente autentica
     winner = pick_first_alive_auth(u, p, ordered)
     if not winner:
-        raise HTTPException(
-            status_code=401,
-            detail={"error": "No pude autenticar contra ningún OPC UA candidato.", "tried": ordered[:25]},
-        )
+        raise HTTPException(401, detail={"error":"No pude autenticar", "tried": ordered[:30]})
 
-    # 4) guarda
     CURRENT_OPCUA_USER = u
     CURRENT_OPCUA_PASS = p
-    CURRENT_OPCUA_URL = winner
+    CURRENT_OPCUA_URL  = winner
 
-    # 5) reinicia reader
     try:
         if plc:
             plc.stop()

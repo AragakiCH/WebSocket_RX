@@ -72,6 +72,28 @@ def _local_networks() -> List[ipaddress.IPv4Network]:
     nets.update(_cidrs_from_env())
     return list(nets)
 
+def _local_hostnames() -> list[str]:
+    names = set()
+    try:
+        names.add(socket.gethostname())
+    except Exception:
+        pass
+    try:
+        names.add(socket.getfqdn())
+    except Exception:
+        pass
+    # los típicos de ctrlX
+    names.update(["ctrlX-CORE"])
+    for i in range(1, 9):
+        names.add(f"VirtualControl-{i}")
+    # filtra basura
+    out = []
+    for n in names:
+        n = (n or "").strip()
+        if n and n.lower() not in ("localhost",):
+            out.append(n)
+    return _unique(out)
+
 def _neighbors_arp() -> List[str]:
     """IPs vecinas vistas en ARP (rápido)."""
     ips: List[str] = []
@@ -148,30 +170,32 @@ def _hostname_candidates() -> List[str]:
 def discover_opcua_urls(extra_candidates: Iterable[str] = ()) -> List[str]:
     candidates: List[str] = []
 
+    # 0) lo que venga de afuera (prioridad alta)
     for x in extra_candidates:
-        if x and x.strip():
-            candidates.append(x.strip())
+        x = (x or "").strip()
+        if x:
+            candidates.append(x)
 
-    # 0) hostnames conocidos (antes de escanear red)
-    for h in _hostname_candidates():
+    # 1) hostnames conocidos + hostname real del equipo
+    for h in _local_hostnames():   # aquí incluye ctrlX-CORE, VirtualControl-1..N, hostname, fqdn
         candidates.append(f"opc.tcp://{h}:{PORT}")
 
-    # 1) local
+    # 2) loopback
     candidates += [f"opc.tcp://127.0.0.1:{PORT}", f"opc.tcp://localhost:{PORT}"]
 
-    # 2) mDNS
+    # 3) mDNS
     candidates += _mdns_discover()
 
-    # 3) ARP neighbors
-    arp_ips = _neighbors_arp()
-    candidates += [f"opc.tcp://{ip}:{PORT}" for ip in arp_ips]
+    # 4) ARP neighbors
+    candidates += [f"opc.tcp://{ip}:{PORT}" for ip in _neighbors_arp()]
 
-    # 4) subredes
+    # 5) subredes
     for net in _local_networks():
         for host in _limit_hosts(net):
             candidates.append(f"opc.tcp://{host}:{PORT}")
 
     return _unique(candidates)
+
 
 def pick_first_alive_any(ordered_urls):
     for url in ordered_urls:
