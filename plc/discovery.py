@@ -1,4 +1,3 @@
-# plc/discovery.py
 from __future__ import annotations
 import os, re, socket, ipaddress, logging, subprocess, sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -7,28 +6,30 @@ from typing import Iterable, List, Tuple, Literal
 log = logging.getLogger("psi.discovery")
 
 PORT = int(os.getenv("DISCOVERY_PORT", "4840"))
-TMO  = float(os.getenv("DISCOVERY_TIMEOUT_S", "0.25"))
+TCP_TMO  = float(os.getenv("DISCOVERY_TCP_TIMEOUT_S", "0.25"))
+OPC_TMO  = float(os.getenv("DISCOVERY_OPC_TIMEOUT_S", "2.5"))
 MAX_PER_NET = int(os.getenv("DISCOVERY_MAX_HOSTS_PER_NET", "256"))
+
 ProbeStatus = Literal["OK", "AUTH_INVALID", "DOWN"]
 
 def _unique(seq: Iterable[str]) -> List[str]:
     seen = set(); out = []
     for x in seq:
+        x = (x or "").strip()
+        if not x: 
+            continue
         if x not in seen:
             seen.add(x); out.append(x)
     return out
 
-def _probe_tcp(host: str, port: int = PORT, timeout: float = TMO) -> bool:
+def _probe_tcp_host(host: str, port: int = PORT, timeout: float = TCP_TMO) -> bool:
     try:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.settimeout(timeout)
-            s.connect((host, port))
+        with socket.create_connection((host, port), timeout=timeout):
             return True
     except Exception:
         return False
 
-
-def _probe_opcua(url: str, user="", password="", timeout=2.0) -> Tuple[ProbeStatus, str]:
+def _probe_opcua(url: str, user="", password="", timeout=OPC_TMO) -> Tuple[ProbeStatus, str]:
     from opcua import Client
     try:
         c = Client(url, timeout=timeout)
@@ -40,7 +41,7 @@ def _probe_opcua(url: str, user="", password="", timeout=2.0) -> Tuple[ProbeStat
         return "OK", ""
     except Exception as e:
         msg = repr(e)
-        if "BadIdentityTokenInvalid" in msg:
+        if "BadIdentityTokenInvalid" in msg or "BadUserAccessDenied" in msg:
             return "AUTH_INVALID", msg
         return "DOWN", msg
 
@@ -56,6 +57,7 @@ def _cidrs_from_env() -> List[ipaddress.IPv4Network]:
 
 def _local_networks() -> List[ipaddress.IPv4Network]:
     nets = set()
+    # intenta via psutil
     try:
         import psutil
         for _, addrs in psutil.net_if_addrs().items():
@@ -63,56 +65,35 @@ def _local_networks() -> List[ipaddress.IPv4Network]:
                 if a.family == socket.AF_INET and a.address and a.netmask:
                     try:
                         iface = ipaddress.IPv4Interface(f"{a.address}/{a.netmask}")
+                        # evita loopback
+                        if str(iface.ip).startswith("127."):
+                            continue
                         nets.add(iface.network)
                     except Exception:
                         pass
     except Exception:
-        # Sin psutil no adivinamos redes; que el usuario use DISCOVERY_CIDRS
         pass
+
     nets.update(_cidrs_from_env())
+    # si no encontró nada, fallback a /24 “típico” de tu IP (si existe)
     return list(nets)
 
-def _local_hostnames() -> list[str]:
-    names = set()
-    try:
-        names.add(socket.gethostname())
-    except Exception:
-        pass
-    try:
-        names.add(socket.getfqdn())
-    except Exception:
-        pass
-    # los típicos de ctrlX
-    names.update(["ctrlX-CORE"])
-    for i in range(1, 9):
-        names.add(f"VirtualControl-{i}")
-    # filtra basura
-    out = []
-    for n in names:
-        n = (n or "").strip()
-        if n and n.lower() not in ("localhost",):
-            out.append(n)
-    return _unique(out)
-
 def _neighbors_arp() -> List[str]:
-    """IPs vecinas vistas en ARP (rápido)."""
     ips: List[str] = []
     try:
         if sys.platform.startswith("win"):
-            out = subprocess.check_output(["arp","-a"], text=True, timeout=1.5, errors="ignore")
+            out = subprocess.check_output(["arp","-a"], text=True, timeout=2.0, errors="ignore")
             ips += re.findall(r"\d+\.\d+\.\d+\.\d+", out)
         else:
-            # Linux/macOS
             for cmd in (["ip","neigh"], ["arp","-an"]):
                 try:
-                    out = subprocess.check_output(cmd, text=True, timeout=1.5, errors="ignore")
+                    out = subprocess.check_output(cmd, text=True, timeout=2.0, errors="ignore")
                     ips += re.findall(r"\d+\.\d+\.\d+\.\d+", out)
                     break
                 except Exception:
                     continue
     except Exception:
         pass
-    # filtra locales
     ips = [ip for ip in ips if not ip.startswith(("0.","127.","224.","255."))]
     return _unique(ips)
 
@@ -122,17 +103,24 @@ def _mdns_discover(timeout: float = 1.5) -> List[str]:
         from zeroconf import Zeroconf, ServiceBrowser
     except Exception:
         return urls
+
     class _L:
-        def __init__(self): self.urls=[]
+        def __init__(self): pass
         def add_service(self, zc, type_, name):
             try:
                 info = zc.get_service_info(type_, name)
                 if not info: return
-                addrs = [socket.inet_ntoa(a) for a in info.addresses]
+                port = info.port or PORT
+                addrs = [socket.inet_ntoa(a) for a in (info.addresses or [])]
+                # algunos anuncian hostname en server
+                if info.server:
+                    hn = info.server.rstrip(".")
+                    urls.append(f"opc.tcp://{hn}:{port}")
                 for a in addrs:
-                    urls.append(f"opc.tcp://{a}:{info.port}")
+                    urls.append(f"opc.tcp://{a}:{port}")
             except Exception:
                 pass
+
     zc = Zeroconf()
     try:
         ServiceBrowser(zc, "_opcua-tcp._tcp.local.", _L())
@@ -142,42 +130,33 @@ def _mdns_discover(timeout: float = 1.5) -> List[str]:
     return _unique(urls)
 
 def _limit_hosts(net: ipaddress.IPv4Network) -> Iterable[str]:
-    """Devuelve hasta MAX_PER_NET hosts del net (espaciados si la red es grande)."""
-    total = net.num_addresses - 2 if net.prefixlen <= 30 else max(0, net.num_addresses)
-    if total <= 0:
+    # samplea como máximo MAX_PER_NET hosts
+    hosts = list(net.hosts())
+    if not hosts:
         return []
-    step = max(1, total // MAX_PER_NET)
-    i = 0
-    for host in net.hosts():
-        if i % step == 0:
-            yield str(host)
-        i += 1
+    if len(hosts) <= MAX_PER_NET:
+        return (str(h) for h in hosts)
+    step = max(1, len(hosts) // MAX_PER_NET)
+    return (str(hosts[i]) for i in range(0, len(hosts), step))
 
 def _hostname_candidates() -> List[str]:
-    # Hostnames típicos
-    names = ["ctrlX-CORE"]
-    # VirtualControl-1..4 (ajusta el rango si quieres)
-    for i in range(1, 5):
-        names.append(f"VirtualControl-{i}")
-        names.append(f"VirtualControl {i}")  # por si alguien lo escribe así (lo normal es con guion)
-    # limpia espacios (porque "VirtualControl 1" en URL es inválido sin encode)
-    out = []
-    for n in names:
-        n2 = n.replace(" ", "-")  # IMPORTANT: en URL no metas espacios
-        out.append(n2)
+    # “comunes”, pero no dependes de ellos
+    max_vc = int(os.getenv("DISCOVERY_VIRTUALCONTROL_MAX", "8"))
+    out = ["ctrlX-CORE", "ctrlx-core", "localhost"]
+    out += [f"VirtualControl-{i}" for i in range(1, max_vc+1)]
+    out += [f"VirtualControl-{i}".lower() for i in range(1, max_vc+1)]
     return _unique(out)
 
 def discover_opcua_urls(extra_candidates: Iterable[str] = ()) -> List[str]:
     candidates: List[str] = []
 
-    # 0) lo que venga de afuera (prioridad alta)
+    # 0) los que te pasen
     for x in extra_candidates:
-        x = (x or "").strip()
-        if x:
-            candidates.append(x)
+        if x and x.strip():
+            candidates.append(x.strip())
 
-    # 1) hostnames conocidos + hostname real del equipo
-    for h in _local_hostnames():   # aquí incluye ctrlX-CORE, VirtualControl-1..N, hostname, fqdn
+    # 1) hostnames comunes
+    for h in _hostname_candidates():
         candidates.append(f"opc.tcp://{h}:{PORT}")
 
     # 2) loopback
@@ -186,38 +165,42 @@ def discover_opcua_urls(extra_candidates: Iterable[str] = ()) -> List[str]:
     # 3) mDNS
     candidates += _mdns_discover()
 
-    # 4) ARP neighbors
-    candidates += [f"opc.tcp://{ip}:{PORT}" for ip in _neighbors_arp()]
+    # 4) vecinos ARP (rápido)
+    for ip in _neighbors_arp():
+        candidates.append(f"opc.tcp://{ip}:{PORT}")
 
-    # 5) subredes
+    # 5) scan subredes locales, pero limitado
     for net in _local_networks():
         for host in _limit_hosts(net):
             candidates.append(f"opc.tcp://{host}:{PORT}")
 
     return _unique(candidates)
 
-
-def pick_first_alive_any(ordered_urls):
-    for url in ordered_urls:
-        host, port = _parse_host_port_from_opcua_url(url)
-        if not _probe_tcp(host, port):
-            continue
-        st, _ = _probe_opcua(url, user="", password="")
+def pick_first_alive_any(urls: Iterable[str]) -> str | None:
+    urls = list(_unique(urls))
+    # filtro TCP rápido
+    fast = []
+    for u in urls:
+        host = u.split("://",1)[-1].split(":",1)[0].split("/",1)[0]
+        if _probe_tcp_host(host):
+            fast.append(u)
+    # prueba OPC UA sin auth (acepta AUTH_INVALID como “vive”)
+    for u in fast:
+        st, _ = _probe_opcua(u)
         if st in ("OK", "AUTH_INVALID"):
-            return url
+            return u
     return None
 
-def _parse_host_port_from_opcua_url(url: str) -> Tuple[str, int]:
-    x = url.split("://", 1)[-1]
-    hostport = x.split("/", 1)[0]
-    if ":" in hostport:
-        h, p = hostport.split(":", 1)
-        return h, int(p)
-    return hostport, PORT
-
-def pick_first_alive_auth(user, password, ordered_urls):
-    for url in ordered_urls:
-        st, info = _probe_opcua(url, user=user, password=password)
+def pick_first_alive_auth(user: str, password: str, urls: Iterable[str]) -> str | None:
+    urls = list(_unique(urls))
+    # filtro TCP rápido
+    fast = []
+    for u in urls:
+        host = u.split("://",1)[-1].split(":",1)[0].split("/",1)[0]
+        if _probe_tcp_host(host):
+            fast.append(u)
+    for u in fast:
+        st, _ = _probe_opcua(u, user=user, password=password)
         if st == "OK":
-            return url
+            return u
     return None

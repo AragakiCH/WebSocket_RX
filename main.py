@@ -217,7 +217,7 @@ def opcua_login(body: OpcuaLoginIn, request: Request):
     # env + discovery
     candidates += URLS_ENV[:]
     discovered = discover_opcua_urls(extra_candidates=candidates)
-    ordered = _unique([c.strip() for c in (candidates + discovered) if c and c.strip()])
+    ordered = _unique(candidates + discovered)
 
     winner = pick_first_alive_auth(u, p, ordered)
     if not winner:
