@@ -230,6 +230,31 @@ tbody td:last-child{
   font-weight: 700;
 }
 
+.field select {
+  cursor: pointer;
+  appearance: none; 
+  background-color: rgba(0, 0, 0, 0.40) !important; 
+  color: rgba(234, 240, 255, 0.90);
+  background-repeat: no-repeat;
+  background-position: calc(100% - 15px) center;
+  padding-right: 40px;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+}
+
+
+.field select option {
+  background-color: #0B1020; 
+  color: #EAF0FF;
+  padding: 10px;
+}
+
+.field select option:hover,
+.field select option:focus,
+.field select option:active {
+  background-color: var(--accent) !important;
+  color: #000;
+}
+
 .field input, .field select {
   width: 100%;
   padding: 0.75rem 0.85rem;
