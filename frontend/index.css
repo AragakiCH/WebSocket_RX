@@ -320,8 +320,8 @@ tbody td:last-child{
 .pass-row {
   display: grid;
   grid-template-columns: 1fr auto;
-  gap: 14px;              /* 👈 separación real */
-  align-items: stretch;   /* 👈 misma altura */
+  gap: 14px;      
+  align-items: stretch;   
 }
 
 
@@ -329,19 +329,41 @@ tbody td:last-child{
   display: grid;
   grid-template-columns: 1fr auto;
   column-gap: 14px;
-  align-items: center;            /* mejor que stretch aquí */
+  align-items: center;          
 }
 
 .pass-row #passInput{
   height: 44px;
-  margin: 0 !important;           /* mata el margin-bottom global */
+  margin: 0 !important;       
 }
 
 .pass-row #btnTogglePass{
   height: 44px;
   padding: 0 16px;
-  min-width: 92px;                /* para que no aplaste */
+  min-width: 92px;         
   white-space: nowrap;
+}
+
+/* Grupo del botón y el número */
+.export-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px; /* Separación entre botón y número */
+}
+
+/* El contador "bonito" */
+.export-badge {
+  background: rgba(167, 139, 250, 0.15); /* Un moradito suave */
+  color: var(--accent2);
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-family: ui-monospace, monospace;
+  font-weight: 800;
+  font-size: 0.9rem;
+  border: 1px solid rgba(167, 139, 250, 0.3);
+  box-shadow: 0 0 10px rgba(167, 139, 250, 0.1);
+  min-width: 35px;
+  text-align: center;
 }
 
 
