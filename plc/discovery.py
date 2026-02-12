@@ -130,14 +130,17 @@ def _mdns_discover(timeout: float = 1.5) -> List[str]:
     return _unique(urls)
 
 def _limit_hosts(net: ipaddress.IPv4Network) -> Iterable[str]:
-    # samplea como máximo MAX_PER_NET hosts
-    hosts = list(net.hosts())
-    if not hosts:
+    # samplea sin convertir toda la red a lista (evita reventar en /16, /8, etc.)
+    total = net.num_addresses - 2 if net.prefixlen <= 30 else net.num_addresses
+    if total <= 0:
         return []
-    if len(hosts) <= MAX_PER_NET:
-        return (str(h) for h in hosts)
-    step = max(1, len(hosts) // MAX_PER_NET)
-    return (str(hosts[i]) for i in range(0, len(hosts), step))
+
+    step = max(1, total // MAX_PER_NET)
+    i = 0
+    for host in net.hosts():
+        if i % step == 0:
+            yield str(host)
+        i += 1
 
 def _hostname_candidates() -> List[str]:
     # “comunes”, pero no dependes de ellos

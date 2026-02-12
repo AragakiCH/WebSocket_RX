@@ -51,14 +51,11 @@
           </div>
 
           <div class="field">
-            <label for="ipSelect">Dirección IP del PLC</label>
-            <select id="ipSelect">
-              <option value="" disabled selected>Selecciona una IP...</option>
-              <option value="192.168.1.10">192.168.1.10 (Planta A)</option>
-              <option value="192.168.1.20">192.168.1.20 (Planta B)</option>
-              <option value="127.0.0.1">127.0.0.1 (Localhost)</option>
-              <option value="10.0.0.50">10.0.0.50 (Pruebas)</option>
+            <label for="ipSelect">Endpoint OPC UA</label>
+            <select id="ipSelect" required>
+              <option value="" disabled selected>Cargando endpoints…</option>
             </select>
+            <small id="ipHint" class="muted"></small>
           </div>
 
           <div id="loginErr" class="login-error" hidden></div>

@@ -26,6 +26,7 @@ except ImportError:
     ExcelLogger = None
 import time
 import traceback
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 LOG_TO_EXCEL = os.getenv("LOG_TO_EXCEL", "true").lower() == "false"
 export_mgr = RtExportManager(out_dir="exports", checkpoint_s=1.5)
@@ -67,6 +68,25 @@ def _normalize_to_ip(url: str) -> str:
         return f"opc.tcp://{ip}:{port}"
     except Exception:
         return url
+    
+def _probe_tcp_fast(host: str, port: int, timeout: float = 0.12) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except Exception:
+        return False
+
+def _tcp_ok_host_or_ip(host: str, port: int) -> tuple[bool, str | None]:
+    ip = None
+    try:
+        ip = socket.gethostbyname(host)
+    except Exception:
+        ip = None
+
+    ok = _probe_tcp_fast(host, port)
+    if not ok and ip:
+        ok = _probe_tcp_fast(ip, port)
+    return bool(ok), ip
     
 def push_to_log(sample: dict):
     try:
@@ -216,71 +236,97 @@ def _shutdown():
 
 
 @app.get("/api/opcua/discover", response_model=list[OpcuaDiscoverItem])
-def opcua_discover(request: Request, max_results: int = 20):
-    # 1) arma candidatos “inteligentes”
-    candidates = []
+def opcua_discover(request: Request, max_results: int = 20, deep: int = 0):
+    port = 4840
 
-    # host desde donde entras a la UI (si entras por 192.168.1.1:8000 => prueba 192.168.1.1:4840)
+    # 1) candidatos rápidos
+    candidates: list[tuple[str, str]] = []  # (url, source)
+
     host_hdr = request.headers.get("host", "")
     host_only = host_hdr.split(":")[0].strip() if host_hdr else ""
     if host_only:
-        candidates.append(f"opc.tcp://{host_only}:4840")
+        candidates.append((f"opc.tcp://{host_only}:{port}", "ui-host"))
 
-    candidates += URLS_ENV[:]
+    # loopback
+    candidates.append((f"opc.tcp://127.0.0.1:{port}", "loopback"))
+    candidates.append((f"opc.tcp://localhost:{port}", "loopback"))
 
-    # 2) discovery “fuerte”
-    discovered = discover_opcua_urls(extra_candidates=candidates)
-    ordered = _unique(candidates + discovered)
+    # env (tu DEFAULT_URL_ENV ya tiene ctrlX-CORE / VirtualControl)
+    for u in URLS_ENV:
+        candidates.append((u, "env"))
 
-    # 3) prepara items con info (y TCP test rápido)
-    items = []
-    for u in ordered:
-        host = _url_host(u)
-        port = _url_port(u)
+    # hostnames típicos (rápido, sin red scan)
+    for h in ["ctrlX-CORE", "ctrlx-core"] + [f"VirtualControl-{i}" for i in range(1, 9)]:
+        candidates.append((f"opc.tcp://{h}:{port}", "known-hostname"))
 
-        ip = None
-        try:
-            ip = socket.gethostbyname(host)
-        except Exception:
-            ip = None
+    # vecinos ARP (rápido)
+    # (usa tu discovery.py si quieres, pero ARP aquí también vale)
+    try:
+        import subprocess, re, sys
+        ips = []
+        if sys.platform.startswith("win"):
+            out = subprocess.check_output(["arp","-a"], text=True, timeout=1.2, errors="ignore")
+            ips += re.findall(r"\d+\.\d+\.\d+\.\d+", out)
+        else:
+            out = subprocess.check_output(["ip","neigh"], text=True, timeout=1.2, errors="ignore")
+            ips += re.findall(r"\d+\.\d+\.\d+\.\d+", out)
+        ips = [ip for ip in ips if not ip.startswith(("0.","127.","224.","255."))]
+        for ip in ips[:60]:
+            candidates.append((f"opc.tcp://{ip}:{port}", "arp"))
+    except Exception:
+        pass
 
-        tcp_ok = _probe_tcp_host(host, port=port) or (ip and _probe_tcp_host(ip, port=port))
+    # deep=1 recién hace el discovery completo (incluye mDNS + scan subred)
+    if deep:
+        discovered = discover_opcua_urls(extra_candidates=[u for u,_ in candidates])
+        for u in discovered:
+            candidates.append((u, "deep-discovery"))
 
-        # source heurístico
-        source = "env/discovery"
-        if host in ("127.0.0.1", "localhost"):
-            source = "loopback"
-        elif host_only and host == host_only:
-            source = "ui-host"
-        elif "VirtualControl" in host or "virtualcontrol" in host:
-            source = "virtualcontrol"
-        elif "ctrlx" in host.lower():
-            source = "ctrlx-core"
-
-        items.append({
-            "url": u,
-            "host": host,
-            "ip": ip,
-            "port": port,
-            "tcp_ok": tcp_ok,
-            "source": source,
-        })
-
-    # 4) filtra y limita: primero tcp_ok=True
-    items.sort(key=lambda x: (not x["tcp_ok"], x["source"]))
-
-    # quita duplicados por url final
-    out = []
+    # 2) dedupe por url
     seen = set()
-    for it in items:
-        if it["url"] in seen:
+    ordered: list[tuple[str,str]] = []
+    for u, src in candidates:
+        u = (u or "").strip()
+        if not u or u in seen:
             continue
-        seen.add(it["url"])
-        out.append(it)
-        if len(out) >= max_results:
-            break
+        seen.add(u)
+        ordered.append((u, src))
 
-    return out
+    # 3) probe TCP en paralelo (esto lo vuelve rápido)
+    def split_host_port(url: str) -> tuple[str,int]:
+        hp = url.split("://",1)[-1].split("/",1)[0]
+        host = hp.split(":",1)[0]
+        prt = int(hp.split(":",1)[1]) if ":" in hp else port
+        return host, prt
+
+    items = []
+    with ThreadPoolExecutor(max_workers=24) as ex:
+        futs = {}
+        for url, src in ordered[:200]:  # límite duro, no te mates
+            host, prt = split_host_port(url)
+            futs[ex.submit(_tcp_ok_host_or_ip, host, prt)] = (url, host, prt, src)
+
+        for fut in as_completed(futs):
+            url, host, prt, src = futs[fut]
+            try:
+                ok, ip = fut.result()
+            except Exception:
+                ok, ip = False, None
+
+            items.append({
+                "url": url,
+                "host": host,
+                "ip": ip,
+                "port": prt,
+                "tcp_ok": bool(ok),
+                "source": src,
+            })
+
+    # 4) ordenar: primero tcp_ok=True y luego por source
+    prio = {"ui-host":0, "env":1, "known-hostname":2, "arp":3, "loopback":4, "deep-discovery":5}
+    items.sort(key=lambda x: (not x["tcp_ok"], prio.get(x["source"], 99), x["host"]))
+
+    return items[:max_results]
 
 @app.post("/api/opcua/login")
 def opcua_login(body: OpcuaLoginIn, request: Request):
@@ -291,12 +337,34 @@ def opcua_login(body: OpcuaLoginIn, request: Request):
     if not u or not p:
         raise HTTPException(400, "Faltan credenciales")
 
-    # 1) lista de candidatos
-    candidates = []
+    # ✅ MODO: el usuario eligió URL -> NO metas discovery / env / host_hdr
     if body.url and body.url.strip():
-        candidates.append(body.url.strip())
+        chosen = body.url.strip()
+        expanded = _unique([chosen, _normalize_to_ip(chosen)])
 
-    # host de UI también (por si el user no escogió nada)
+        winner = pick_first_alive_auth(u, p, expanded)
+        if not winner:
+            raise HTTPException(
+                status_code=401,
+                detail={"error": "No pude autenticar contra el endpoint elegido.", "tried": expanded},
+            )
+
+        CURRENT_OPCUA_USER = u
+        CURRENT_OPCUA_PASS = p
+        CURRENT_OPCUA_URL  = winner
+
+        try:
+            if plc:
+                plc.stop()
+                plc = None
+        except Exception:
+            pass
+
+        return {"ok": True, "url": winner}
+
+    # 👇 SOLO si NO eligió nada recién haces discovery/fallback
+    candidates = []
+
     host_hdr = request.headers.get("host", "")
     host_only = host_hdr.split(":")[0].strip() if host_hdr else ""
     if host_only:
@@ -304,10 +372,8 @@ def opcua_login(body: OpcuaLoginIn, request: Request):
 
     candidates += URLS_ENV[:]
     discovered = discover_opcua_urls(extra_candidates=candidates)
-
     ordered = _unique(candidates + discovered)
 
-    # 2) prueba: si URL trae hostname, prueba también su versión por IP
     expanded = []
     for u0 in ordered:
         expanded.append(u0)
@@ -316,24 +382,14 @@ def opcua_login(body: OpcuaLoginIn, request: Request):
             expanded.append(u_ip)
     expanded = _unique(expanded)
 
-    # 3) elige el primero que autentique
     winner = pick_first_alive_auth(u, p, expanded)
     if not winner:
-        raise HTTPException(
-            status_code=401,
-            detail={
-                "error": "No pude autenticar contra ningún endpoint.",
-                "hint": "Revisa usuario/clave OPC UA y security/token del server.",
-                "tried": expanded[:30],
-            },
-        )
+        raise HTTPException(status_code=401, detail={"error": "No pude autenticar.", "tried": expanded[:30]})
 
-    # 4) guarda
     CURRENT_OPCUA_USER = u
     CURRENT_OPCUA_PASS = p
     CURRENT_OPCUA_URL  = winner
 
-    # 5) reinicia reader (tu supervisor lo levantará)
     try:
         if plc:
             plc.stop()
