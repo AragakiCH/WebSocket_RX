@@ -50,13 +50,22 @@
             </div>
           </div>
 
+          <div class="field">
+            <label for="ipSelect">Dirección IP del PLC</label>
+            <select id="ipSelect">
+              <option value="" disabled selected>Selecciona una IP...</option>
+              <option value="192.168.1.10">192.168.1.10 (Planta A)</option>
+              <option value="192.168.1.20">192.168.1.20 (Planta B)</option>
+              <option value="127.0.0.1">127.0.0.1 (Localhost)</option>
+              <option value="10.0.0.50">10.0.0.50 (Pruebas)</option>
+            </select>
+          </div>
+
           <div id="loginErr" class="login-error" hidden></div>
 
           <div class="modal-footer">
             <button id="btnLogin" class="btn" type="submit">Ingresar</button>
           </div>
-
-          <div class="login-hint">Tip: <b>admin</b> / <b>1234</b></div>
         </form>
       </div>
     </div>
@@ -75,10 +84,12 @@
       <div class="toolbar">
         <div id="status" class="status">WebSocket desconectado.</div>
 
-        <button id="btnExport" class="btn btn-secondary" disabled>
-          Iniciar export
-        </button>
-        <span id="exportCount" class="muted">0</span>
+        <div class="export-actions">
+          <button id="btnExport" class="btn btn-secondary" disabled>
+            Iniciar export
+          </button>
+          <span id="exportCount" class="export-badge">0</span>
+        </div>
       </div>
 
       <table id="data-table">

@@ -74,3 +74,28 @@ loginForm?.addEventListener("submit", async (e) => {
     loginErr.hidden = false;
   }
 });
+
+
+document.addEventListener('DOMContentLoaded', () => {
+    const loginForm = document.getElementById('loginForm');
+    const ipSelect = document.getElementById('ipSelect');
+
+    loginForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        
+        // Obtenemos los valores
+        const user = document.getElementById('userInput').value;
+        const pass = document.getElementById('passInput').value;
+        const selectedIp = ipSelect.value;
+
+        if (!selectedIp) {
+            alert("Causa, selecciona una IP pe'");
+            return;
+        }
+
+        console.log("Intentando conectar a:", selectedIp);
+        
+        // Aquí seguiría tu lógica de login...
+        // loginAuth(user, pass, selectedIp);
+    });
+});
