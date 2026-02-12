@@ -178,27 +178,47 @@ def discover_opcua_urls(extra_candidates: Iterable[str] = ()) -> List[str]:
 
 def pick_first_alive_any(urls: Iterable[str]) -> str | None:
     urls = list(_unique(urls))
-    # filtro TCP rápido
+
     fast = []
     for u in urls:
         host = u.split("://",1)[-1].split(":",1)[0].split("/",1)[0]
-        if _probe_tcp_host(host):
+
+        ok = _probe_tcp_host(host)
+        if not ok:
+            try:
+                ip = socket.gethostbyname(host)
+                ok = _probe_tcp_host(ip)
+            except Exception:
+                ok = False
+
+        if ok:
             fast.append(u)
-    # prueba OPC UA sin auth (acepta AUTH_INVALID como “vive”)
+
     for u in fast:
         st, _ = _probe_opcua(u)
         if st in ("OK", "AUTH_INVALID"):
             return u
     return None
 
+
 def pick_first_alive_auth(user: str, password: str, urls: Iterable[str]) -> str | None:
     urls = list(_unique(urls))
-    # filtro TCP rápido
+
     fast = []
     for u in urls:
         host = u.split("://",1)[-1].split(":",1)[0].split("/",1)[0]
-        if _probe_tcp_host(host):
+
+        ok = _probe_tcp_host(host)
+        if not ok:
+            try:
+                ip = socket.gethostbyname(host)
+                ok = _probe_tcp_host(ip)
+            except Exception:
+                ok = False
+
+        if ok:
             fast.append(u)
+
     for u in fast:
         st, _ = _probe_opcua(u, user=user, password=password)
         if st == "OK":

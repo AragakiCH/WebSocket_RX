@@ -1,5 +1,5 @@
 # main.py
-import os, sys, queue
+import os, sys, queue, socket
 from pathlib import Path
 from fastapi import FastAPI, WebSocket
 from fastapi.staticfiles import StaticFiles
@@ -8,7 +8,7 @@ from ws.ws_endpoint import websocket_endpoint
 from ws.ws_write_endpoint import websocket_write_endpoint
 from plc.opc_client import PLCReader
 from plc.buffer import data_buffer
-from plc.discovery import discover_opcua_urls, pick_first_alive_auth, pick_first_alive_any
+from plc.discovery import discover_opcua_urls, pick_first_alive_auth, pick_first_alive_any, _probe_tcp_host
 import logging
 from pydantic import BaseModel
 from fastapi import HTTPException
@@ -36,13 +36,54 @@ def _parse_opcua_urls(val: str) -> list[str]:
     return [u.strip() for u in val.split(",") if u.strip()]
 
 def _unique(seq):
-    seen = set()
-    out = []
+    seen = set(); out = []
     for x in seq:
+        x = (x or "").strip()
+        if not x: 
+            continue
         if x not in seen:
-            seen.add(x)
-            out.append(x)
+            seen.add(x); out.append(x)
     return out
+
+def _url_host(url: str) -> str:
+    hp = url.split("://",1)[-1].split("/",1)[0]
+    host = hp.split(":",1)[0]
+    return host.strip()
+
+def _url_port(url: str) -> int:
+    hp = url.split("://",1)[-1].split("/",1)[0]
+    if ":" in hp:
+        try: return int(hp.split(":",1)[1])
+        except Exception: return 4840
+    return 4840
+
+def _normalize_to_ip(url: str) -> str:
+    # opc.tcp://host:4840 -> opc.tcp://ip:4840 (si resuelve)
+    host = _url_host(url)
+    port = _url_port(url)
+    try:
+        ip = socket.gethostbyname(host)
+        # si ya es ip, gethostbyname lo devuelve igual
+        return f"opc.tcp://{ip}:{port}"
+    except Exception:
+        return url
+    
+def push_to_log(sample: dict):
+    try:
+        log_queue.put_nowait(sample)
+    except queue.Full:
+        pass
+
+    try:
+        data_buffer.append(sample)
+    except Exception:
+        pass
+
+    # ✅ NUEVO: si está exportando, mete fila
+    try:
+        export_mgr.ingest(sample)
+    except Exception:
+        pass
 
 IS_EMBEDDED = os.getenv("PSI_EMBEDDED", "false").lower() == "true"
 
@@ -63,13 +104,23 @@ DEFAULT_URL_ENV = ",".join([
 
 URL_ENV = os.getenv("OPCUA_URL", DEFAULT_URL_ENV)
 URLS_ENV = _parse_opcua_urls(URL_ENV)
-URL = URLS_ENV[0] if URLS_ENV else "opc.tcp://127.0.0.1:4840"
+URL_FALLBACK = URLS_ENV[0] if URLS_ENV else "opc.tcp://127.0.0.1:4840"
 
 class OpcuaLoginIn(BaseModel):
     user: str
     password: str
-    url: str | None = None  # opcional si quieres elegir URL también
+    url: str | None = None
 
+
+class OpcuaDiscoverItem(BaseModel):
+    url: str
+    host: str
+    ip: str | None = None
+    port: int
+    tcp_ok: bool
+    source: str
+
+plc = None
 CURRENT_OPCUA_USER = None
 CURRENT_OPCUA_PASS = None
 CURRENT_OPCUA_URL  = None
@@ -96,85 +147,53 @@ if ExcelLogger and LOG_TO_EXCEL:
                                flush_every=20, flush_interval=0.5)
     excel_logger.start()
 
-def push_to_log(sample: dict):
-    try:
-        log_queue.put_nowait(sample)
-    except queue.Full:
-        pass
 
-    try:
-        data_buffer.append(sample)
-    except Exception:
-        pass
-
-    # ✅ NUEVO: si está exportando, mete fila
-    try:
-        export_mgr.ingest(sample)
-    except Exception:
-        pass
 
 @app.on_event("startup")
 def _startup():
-    log = logging.getLogger("uvicorn")
-    env_urls = URLS_ENV[:] #or ["opc.tcp://192.168.17.60:4840"]
-
     def supervisor():
         global plc, CURRENT_OPCUA_USER, CURRENT_OPCUA_PASS, CURRENT_OPCUA_URL
-
+        import logging
+        log = logging.getLogger("uvicorn")
         backoff = 1.0
         max_backoff = 30.0
 
         while True:
             try:
-                # 0) si ya hay reader, vigila que siga vivo
                 if plc is not None:
                     thr = getattr(plc, "_thr", None)
                     if thr is not None and not thr.is_alive():
-                        try:
-                            plc.stop()
-                        except Exception:
-                            pass
+                        try: plc.stop()
+                        except Exception: pass
                         plc = None
                     time.sleep(2.0)
                     continue
 
-                # 1) no spamees conexiones si aún no hay login
                 user = (CURRENT_OPCUA_USER or "").strip()
                 password = CURRENT_OPCUA_PASS or ""
                 if not user or not password:
                     time.sleep(1.0)
                     continue
 
-                # 2) URLs candidatas (si el login mandó url, úsala primero)
                 env_urls = [CURRENT_OPCUA_URL] if CURRENT_OPCUA_URL else URLS_ENV[:]
                 if not env_urls:
-                    env_urls = [URL]  # fallback
+                    env_urls = [URL_FALLBACK]
 
-                # 3) elige una URL "viva" (sin validar auth aquí)
                 url = pick_first_alive_any(env_urls)
-
-                # 4) fallback discovery
                 if not url:
-                    log.warning("OPCUA_URL no respondió. Haré discovery. ENV=%s", env_urls)
                     ordered = discover_opcua_urls(extra_candidates=env_urls)
                     url = pick_first_alive_any(ordered)
 
-                # 5) si hay url viva, arranca PLCReader con credenciales actuales
                 if url:
                     log.info("OPC UA elegido: %s", url)
-                    _plc = PLCReader(
-                        url, user, password, data_buffer,
-                        buffer_size=100, on_sample=push_to_log
-                    )
+                    _plc = PLCReader(url, user, password, data_buffer, buffer_size=100)
                     _plc.start()
                     plc = _plc
-                    log.info("PLCReader iniciado OK.")
                     backoff = 1.0
                 else:
-                    log.error("No se encontró OPC UA vivo todavía. Reintento en %.1fs", backoff)
-                    push_to_log({"Error": {"opcua": "offline"}, "timestamp": time.time()})
+                    log.error("No OPC UA vivo. Reintento en %.1fs", backoff)
                     time.sleep(backoff)
-                    backoff = min(backoff * 2.0, max_backoff)
+                    backoff = min(backoff*2.0, max_backoff)
 
             except Exception as e:
                 log.exception("Supervisor OPCUA reventó: %s", e)
@@ -195,6 +214,74 @@ def _shutdown():
     except Exception:
         pass
 
+
+@app.get("/api/opcua/discover", response_model=list[OpcuaDiscoverItem])
+def opcua_discover(request: Request, max_results: int = 20):
+    # 1) arma candidatos “inteligentes”
+    candidates = []
+
+    # host desde donde entras a la UI (si entras por 192.168.1.1:8000 => prueba 192.168.1.1:4840)
+    host_hdr = request.headers.get("host", "")
+    host_only = host_hdr.split(":")[0].strip() if host_hdr else ""
+    if host_only:
+        candidates.append(f"opc.tcp://{host_only}:4840")
+
+    candidates += URLS_ENV[:]
+
+    # 2) discovery “fuerte”
+    discovered = discover_opcua_urls(extra_candidates=candidates)
+    ordered = _unique(candidates + discovered)
+
+    # 3) prepara items con info (y TCP test rápido)
+    items = []
+    for u in ordered:
+        host = _url_host(u)
+        port = _url_port(u)
+
+        ip = None
+        try:
+            ip = socket.gethostbyname(host)
+        except Exception:
+            ip = None
+
+        tcp_ok = _probe_tcp_host(host, port=port) or (ip and _probe_tcp_host(ip, port=port))
+
+        # source heurístico
+        source = "env/discovery"
+        if host in ("127.0.0.1", "localhost"):
+            source = "loopback"
+        elif host_only and host == host_only:
+            source = "ui-host"
+        elif "VirtualControl" in host or "virtualcontrol" in host:
+            source = "virtualcontrol"
+        elif "ctrlx" in host.lower():
+            source = "ctrlx-core"
+
+        items.append({
+            "url": u,
+            "host": host,
+            "ip": ip,
+            "port": port,
+            "tcp_ok": tcp_ok,
+            "source": source,
+        })
+
+    # 4) filtra y limita: primero tcp_ok=True
+    items.sort(key=lambda x: (not x["tcp_ok"], x["source"]))
+
+    # quita duplicados por url final
+    out = []
+    seen = set()
+    for it in items:
+        if it["url"] in seen:
+            continue
+        seen.add(it["url"])
+        out.append(it)
+        if len(out) >= max_results:
+            break
+
+    return out
+
 @app.post("/api/opcua/login")
 def opcua_login(body: OpcuaLoginIn, request: Request):
     global CURRENT_OPCUA_USER, CURRENT_OPCUA_PASS, CURRENT_OPCUA_URL, plc
@@ -204,29 +291,49 @@ def opcua_login(body: OpcuaLoginIn, request: Request):
     if not u or not p:
         raise HTTPException(400, "Faltan credenciales")
 
+    # 1) lista de candidatos
     candidates = []
     if body.url and body.url.strip():
         candidates.append(body.url.strip())
 
-    # host por donde estás entrando a la UI (IP o nombre)
+    # host de UI también (por si el user no escogió nada)
     host_hdr = request.headers.get("host", "")
     host_only = host_hdr.split(":")[0].strip() if host_hdr else ""
     if host_only:
         candidates.append(f"opc.tcp://{host_only}:4840")
 
-    # env + discovery
     candidates += URLS_ENV[:]
     discovered = discover_opcua_urls(extra_candidates=candidates)
+
     ordered = _unique(candidates + discovered)
 
-    winner = pick_first_alive_auth(u, p, ordered)
-    if not winner:
-        raise HTTPException(401, detail={"error":"No pude autenticar", "tried": ordered[:30]})
+    # 2) prueba: si URL trae hostname, prueba también su versión por IP
+    expanded = []
+    for u0 in ordered:
+        expanded.append(u0)
+        u_ip = _normalize_to_ip(u0)
+        if u_ip != u0:
+            expanded.append(u_ip)
+    expanded = _unique(expanded)
 
+    # 3) elige el primero que autentique
+    winner = pick_first_alive_auth(u, p, expanded)
+    if not winner:
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error": "No pude autenticar contra ningún endpoint.",
+                "hint": "Revisa usuario/clave OPC UA y security/token del server.",
+                "tried": expanded[:30],
+            },
+        )
+
+    # 4) guarda
     CURRENT_OPCUA_USER = u
     CURRENT_OPCUA_PASS = p
     CURRENT_OPCUA_URL  = winner
 
+    # 5) reinicia reader (tu supervisor lo levantará)
     try:
         if plc:
             plc.stop()
@@ -243,7 +350,7 @@ def opcua_endpoints(url: str | None = None):
     if not u or not p:
         raise HTTPException(400, "Primero haz login en /api/opcua/login")
 
-    target = (url or CURRENT_OPCUA_URL or URL).strip()
+    target = (url or CURRENT_OPCUA_URL or URL_FALLBACK).strip()
 
     # probamos 2 caminos:
     # A) conectar + get_endpoints()
