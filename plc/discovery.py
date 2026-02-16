@@ -130,14 +130,17 @@ def _mdns_discover(timeout: float = 1.5) -> List[str]:
     return _unique(urls)
 
 def _limit_hosts(net: ipaddress.IPv4Network) -> Iterable[str]:
-    # samplea como máximo MAX_PER_NET hosts
-    hosts = list(net.hosts())
-    if not hosts:
+    # samplea sin convertir toda la red a lista (evita reventar en /16, /8, etc.)
+    total = net.num_addresses - 2 if net.prefixlen <= 30 else net.num_addresses
+    if total <= 0:
         return []
-    if len(hosts) <= MAX_PER_NET:
-        return (str(h) for h in hosts)
-    step = max(1, len(hosts) // MAX_PER_NET)
-    return (str(hosts[i]) for i in range(0, len(hosts), step))
+
+    step = max(1, total // MAX_PER_NET)
+    i = 0
+    for host in net.hosts():
+        if i % step == 0:
+            yield str(host)
+        i += 1
 
 def _hostname_candidates() -> List[str]:
     # “comunes”, pero no dependes de ellos
@@ -179,26 +182,46 @@ def discover_opcua_urls(extra_candidates: Iterable[str] = ()) -> List[str]:
 def pick_first_alive_any(urls: Iterable[str]) -> str | None:
     urls = list(_unique(urls))
     # filtro TCP rápido
-    fast = [] 
+    fast = []
     for u in urls:
         host = u.split("://",1)[-1].split(":",1)[0].split("/",1)[0]
-        if _probe_tcp_host(host):
+
+        ok = _probe_tcp_host(host)
+        if not ok:
+            try:
+                ip = socket.gethostbyname(host)
+                ok = _probe_tcp_host(ip)
+            except Exception:
+                ok = False
+
+        if ok:
             fast.append(u)
-    # prueba OPC UA sin auth (acepta AUTH_INVALID como “vive”)
+
     for u in fast:
         st, _ = _probe_opcua(u)
         if st in ("OK", "AUTH_INVALID"):
             return u
     return None
 
+
 def pick_first_alive_auth(user: str, password: str, urls: Iterable[str]) -> str | None:
     urls = list(_unique(urls))
-    # filtro TCP rápido
+
     fast = []
     for u in urls:
         host = u.split("://",1)[-1].split(":",1)[0].split("/",1)[0]
-        if _probe_tcp_host(host):
+
+        ok = _probe_tcp_host(host)
+        if not ok:
+            try:
+                ip = socket.gethostbyname(host)
+                ok = _probe_tcp_host(ip)
+            except Exception:
+                ok = False
+
+        if ok:
             fast.append(u)
+
     for u in fast:
         st, _ = _probe_opcua(u, user=user, password=password)
         if st == "OK":

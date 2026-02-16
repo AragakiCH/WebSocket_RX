@@ -50,13 +50,19 @@
             </div>
           </div>
 
+          <div class="field">
+            <label for="ipSelect">Endpoint OPC UA</label>
+            <select id="ipSelect" required>
+              <option value="" disabled selected>Cargando endpoints…</option>
+            </select>
+            <small id="ipHint" class="muted"></small>
+          </div>
+
           <div id="loginErr" class="login-error" hidden></div>
 
           <div class="modal-footer">
             <button id="btnLogin" class="btn" type="submit">Ingresar</button>
           </div>
-
-          <div class="login-hint">Tip: <b>admin</b> / <b>1234</b></div>
         </form>
       </div>
     </div>
@@ -75,10 +81,12 @@
       <div class="toolbar">
         <div id="status" class="status">WebSocket desconectado.</div>
 
-        <button id="btnExport" class="btn btn-secondary" disabled>
-          Iniciar export
-        </button>
-        <span id="exportCount" class="muted">0</span>
+        <div class="export-actions">
+          <button id="btnExport" class="btn btn-secondary" disabled>
+            Iniciar export
+          </button>
+          <span id="exportCount" class="export-badge">0</span>
+        </div>
       </div>
 
       <table id="data-table">
