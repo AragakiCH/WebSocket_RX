@@ -179,7 +179,7 @@ def discover_opcua_urls(extra_candidates: Iterable[str] = ()) -> List[str]:
 def pick_first_alive_any(urls: Iterable[str]) -> str | None:
     urls = list(_unique(urls))
     # filtro TCP rápido
-    fast = []
+    fast = [] 
     for u in urls:
         host = u.split("://",1)[-1].split(":",1)[0].split("/",1)[0]
         if _probe_tcp_host(host):
