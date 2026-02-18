@@ -13,10 +13,10 @@ const passInput = document.getElementById("passInput");
 const ipSelect = document.getElementById("ipSelect");
 const ipHint = document.getElementById("ipHint");
 const btnTogglePass = document.getElementById("btnTogglePass");
-const API_PORT = 8000; // el mismo que pones en tu wrapper (API_PORT)
-const API_HOST = location.hostname; // el IP/nombre del ctrlX
-const API_BASE = `http://${API_HOST}:${API_PORT}`; // backend FastAPI (sin TLS)
-const WS_BASE  = `ws://${API_HOST}:${API_PORT}`;   // websocket en el backend
+const first = (location.pathname.split("/")[1] || "").trim();
+const APP_PREFIX = first ? `/${first}` : "";
+const API_BASE = `${location.origin}${APP_PREFIX}`;
+const WS_BASE  = `${location.origin.replace("http","ws")}${APP_PREFIX}`;
 
 const STORE = sessionStorage;
 

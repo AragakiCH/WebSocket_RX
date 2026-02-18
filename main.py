@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.responses import FileResponse
+from fastapi import APIRouter
 from fastapi import Body
 from utils.rt_export_manager import RtExportManager
 import os
@@ -144,6 +145,8 @@ plc = None
 CURRENT_OPCUA_USER = None
 CURRENT_OPCUA_PASS = None
 CURRENT_OPCUA_URL  = None
+APP_PREFIX = os.getenv("APP_PREFIX", "/api-websocket-rx")
+router = APIRouter(prefix=APP_PREFIX)   
 
 #USER     = os.getenv("OPCUA_USER", "boschrexroth")
 #PASSWORD = os.getenv("OPCUA_PASSWORD", "boschrexroth")
@@ -235,7 +238,7 @@ def _shutdown():
         pass
 
 
-@app.get("/api/opcua/discover", response_model=list[OpcuaDiscoverItem])
+@router.get("/api/opcua/discover", response_model=list[OpcuaDiscoverItem])
 def opcua_discover(request: Request, max_results: int = 20, deep: int = 0):
     port = 4840
 
@@ -328,7 +331,7 @@ def opcua_discover(request: Request, max_results: int = 20, deep: int = 0):
 
     return items[:max_results]
 
-@app.post("/api/opcua/login")
+@router.post("/api/opcua/login")
 def opcua_login(body: OpcuaLoginIn, request: Request):
     global CURRENT_OPCUA_USER, CURRENT_OPCUA_PASS, CURRENT_OPCUA_URL, plc
 
@@ -399,7 +402,7 @@ def opcua_login(body: OpcuaLoginIn, request: Request):
 
     return {"ok": True, "url": winner}
 
-@app.get("/api/opcua/endpoints")
+@router.get("/api/opcua/endpoints")
 def opcua_endpoints(url: str | None = None):
     u = (CURRENT_OPCUA_USER or "").strip()
     p = CURRENT_OPCUA_PASS or ""
@@ -469,15 +472,15 @@ def opcua_endpoints(url: str | None = None):
                 },
             )
 
-@app.websocket("/ws")
+@router.websocket("/ws")
 async def ws(websocket: WebSocket):
     await websocket_endpoint(websocket)
 
-@app.websocket("/ws_write")
+@router.websocket("/ws_write")
 async def ws_write(websocket: WebSocket):
     await websocket_write_endpoint(websocket)
 
-@app.post("/api/export/start")
+@router.post("/api/export/start")
 def export_start(payload: dict = Body(...)):
     tags = payload.get("tags") or []
     try:
@@ -486,16 +489,16 @@ def export_start(payload: dict = Body(...)):
     except Exception as e:
         raise HTTPException(400, f"No pude iniciar export: {e}")
 
-@app.post("/api/export/stop")
+@router.post("/api/export/stop")
 def export_stop():
     st = export_mgr.stop()
     return {"ok": True, "status": st}
 
-@app.get("/api/export/status")
+@router.get("/api/export/status")
 def export_status():
     return export_mgr.status()
 
-@app.get("/api/export/download")
+@router.get("/api/export/download")
 def export_download():
     st = export_mgr.status()
     path = st.get("path")
@@ -507,13 +510,14 @@ def export_download():
         filename=os.path.basename(path),
     )
 
-APP_PREFIX = os.getenv("APP_PREFIX", "/api-websocket-rx")
+
 
 BASE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 STATIC_DIR = (BASE_DIR / "frontend").resolve()
 
+app.include_router(router)
 # Sirve UI dentro del prefijo del reverse proxy
 app.mount(APP_PREFIX, StaticFiles(directory=str(STATIC_DIR), html=True), name="frontend")
 
 # (Opcional) Mantén root para debug directo por :8000
-app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="frontend-root")
+#app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="frontend-root")
