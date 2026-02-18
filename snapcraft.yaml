@@ -37,11 +37,11 @@ parts:
       "$CRAFT_PART_INSTALL/venv/bin/pip" install -U pip setuptools wheel
       "$CRAFT_PART_INSTALL/venv/bin/pip" install -r "$CRAFT_PART_INSTALL/app/requirements.snap.txt"
 
-    webui-assets:
-      plugin: dump
-      source: package-assets
-      organize:
-        "*": package-assets/
+  webui-assets:
+    plugin: dump
+    source: package-assets/
+    organize:
+      "*": package-assets/
 
 apps:
   websocket-api:
