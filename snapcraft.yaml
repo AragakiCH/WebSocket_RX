@@ -49,3 +49,11 @@ apps:
     daemon: simple
     restart-condition: always
     plugs: [network, network-bind]
+
+slots:
+  package-assets:
+    interface: content
+    content: package-assets
+    source:
+      read:
+        - $SNAP/package-assets

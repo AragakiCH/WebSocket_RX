@@ -507,7 +507,13 @@ def export_download():
         filename=os.path.basename(path),
     )
 
-# StaticFiles compatible con PyInstaller
+APP_PREFIX = os.getenv("APP_PREFIX", "/api-websocket-rx")
+
 BASE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 STATIC_DIR = (BASE_DIR / "frontend").resolve()
-app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="frontend")
+
+# Sirve UI dentro del prefijo del reverse proxy
+app.mount(APP_PREFIX, StaticFiles(directory=str(STATIC_DIR), html=True), name="frontend")
+
+# (Opcional) Mantén root para debug directo por :8000
+app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="frontend-root")
