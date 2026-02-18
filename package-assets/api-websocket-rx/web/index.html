@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>ctrlX WebSocket UI</title>
+
+    <!-- CSS externo -->
+    <link rel="stylesheet" href="index.css" />
+  </head>
+
+  <body>
+    <!-- LOGIN MODAL -->
+    <div id="loginOverlay" class="modal-overlay">
+      <div
+        class="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="loginTitle"
+      >
+        <div class="modal-header">
+          <h2 id="loginTitle">Iniciar sesión</h2>
+          <div class="modal-sub">Panel de datos · ctrlX</div>
+        </div>
+
+        <form id="loginForm" class="modal-body">
+          <div class="field">
+            <label for="userInput">Usuario</label>
+            <input
+              id="userInput"
+              type="text"
+              placeholder="Ej: admin"
+              autocomplete="username"
+              required
+            />
+          </div>
+
+          <div class="field">
+            <label for="passInput">Contraseña</label>
+            <div class="pass-row">
+              <input
+                id="passInput"
+                type="password"
+                placeholder="Ej: 1234"
+                autocomplete="current-password"
+                required
+              />
+              <!-- <button type="button" id="btnTogglePass" class="btn btn-ghost">
+                Mostrar
+              </button> -->
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="ipSelect">Endpoint OPC UA</label>
+            <select id="ipSelect" required>
+              <option value="" disabled selected>Cargando endpoints…</option>
+            </select>
+            <small id="ipHint" class="muted"></small>
+          </div>
+
+          <div id="loginErr" class="login-error" hidden></div>
+
+          <div class="modal-footer">
+            <button id="btnLogin" class="btn" type="submit">Ingresar</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <header>
+      <h1>ctrlX WebSocket Demo</h1>
+      <div>
+        <button id="btnConnect" class="btn" disabled>
+          Obtener Datos del PLC
+        </button>
+        <button id="btnDisconnect" class="btn" disabled>Desconectar</button>
+      </div>
+    </header>
+
+    <main>
+      <div class="toolbar">
+        <div id="status" class="status">WebSocket desconectado.</div>
+
+        <div class="export-actions">
+          <button id="btnExport" class="btn btn-secondary" disabled>
+            Iniciar export
+          </button>
+          <span id="exportCount" class="export-badge">0</span>
+        </div>
+      </div>
+
+      <table id="data-table">
+        <thead>
+          <tr>
+            <th>Tag</th>
+            <th>Valor</th>
+            <th class="col-sel">
+              <input type="checkbox" id="chkAll" title="Seleccionar todo" />
+            </th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </main>
+
+    <!-- JS externo (orden importa) -->
+    <!-- <script src="./js/modal.js" defer></script> -->
+    <script src="./js/app.js" defer></script>
+    <script src="./js/login.js"></script>
+  </body>
+</html>
