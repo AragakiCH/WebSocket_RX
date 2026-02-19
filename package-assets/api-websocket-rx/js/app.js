@@ -165,6 +165,7 @@ chkAll?.addEventListener("change", () => {
 // =====================================
 async function fetchExportStatus() {
   const res = await fetch(`${API_BASE}/api/export/status`, { cache: "no-store" });
+  console.log("EXPORT STATUS URL =>", `${API_BASE}/api/export/status`);
   const raw = await res.text();
   if (!res.ok) throw new Error(raw.slice(0, 200));
 

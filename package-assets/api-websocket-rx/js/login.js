@@ -20,11 +20,16 @@ const STORE = sessionStorage;
 // ===============================
 // URL base robusta para ctrlX reverse proxy
 // ===============================
-const parts = location.pathname.split("/").filter(Boolean);
-const APP_PREFIX = parts.length ? `/${parts[0]}` : "";
-const API_BASE = `${location.origin}${APP_PREFIX}`;
-const WS_BASE  = `${location.origin.replace("http", "ws")}${APP_PREFIX}`;
+function computePrefix() {
+  // Ej: baseURI = https://192.168.17.60/api-websocket-rx/
+  // new URL('.', baseURI).pathname => "/api-websocket-rx/"
+  const dir = new URL(".", document.baseURI).pathname;
+  return dir.endsWith("/") ? dir.slice(0, -1) : dir; // "/api-websocket-rx"
+}
 
+const APP_PREFIX = computePrefix();                 // "" o "/api-websocket-rx"
+const API_BASE = `${location.origin}${APP_PREFIX}`;
+const WS_BASE  = `${location.origin.replace(/^http/, "ws")}${APP_PREFIX}`;
 // ===============================
 // Config de sesión
 // ===============================
@@ -115,6 +120,7 @@ async function loadDiscover() {
     ipSelect.innerHTML = `<option value="" disabled selected>Cargando endpoints…</option>`;
 
     const url = `${API_BASE}/api/opcua/discover`;
+    console.log("DISCOVER URL =>", url);
     const res = await fetch(url, { cache: "no-store" });
 
     const ct = (res.headers.get("content-type") || "").toLowerCase();
