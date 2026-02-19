@@ -1,18 +1,20 @@
 // js/login.js
 // Login modal + OPC UA discover dropdown + login POST (/api/opcua/login)
+// - Soporta reverse-proxy (/api-websocket-rx) sin hardcodear rutas
+// - Evita “Unexpected token '<'” leyendo response como texto y validando content-type
+// - No “rompe” el gating: al loguear llama window.__enableApp() y además emite auth:ok
 //
 // Requiere en el HTML:
 //  - #loginOverlay, #loginForm, #loginErr, #userInput, #passInput, #ipSelect
 //  - (opcional) #btnTogglePass, #ipHint
 
-// --- elementos del login overlay ---
 const loginOverlay = document.getElementById("loginOverlay");
-const loginForm    = document.getElementById("loginForm");
-const loginErr     = document.getElementById("loginErr");
-const userInput    = document.getElementById("userInput");
-const passInput    = document.getElementById("passInput");
-const ipSelect     = document.getElementById("ipSelect");
-const ipHint       = document.getElementById("ipHint");
+const loginForm = document.getElementById("loginForm");
+const loginErr = document.getElementById("loginErr");
+const userInput = document.getElementById("userInput");
+const passInput = document.getElementById("passInput");
+const ipSelect = document.getElementById("ipSelect");
+const ipHint = document.getElementById("ipHint");
 const btnTogglePass = document.getElementById("btnTogglePass");
 
 const STORE = sessionStorage;
@@ -22,19 +24,20 @@ const STORE = sessionStorage;
 // ===============================
 function computePrefix() {
   // Ej: baseURI = https://192.168.17.60/api-websocket-rx/
-  // new URL('.', baseURI).pathname => "/api-websocket-rx/"
+  // new URL(".", baseURI).pathname => "/api-websocket-rx/"
   const dir = new URL(".", document.baseURI).pathname;
   return dir.endsWith("/") ? dir.slice(0, -1) : dir; // "/api-websocket-rx"
 }
 
-const APP_PREFIX = computePrefix();                 // "" o "/api-websocket-rx"
+const APP_PREFIX = computePrefix(); // "" o "/api-websocket-rx"
 const API_BASE = `${location.origin}${APP_PREFIX}`;
-const WS_BASE  = `${location.origin.replace(/^http/, "ws")}${APP_PREFIX}`;
+const WS_BASE = `${location.origin.replace(/^http/, "ws")}${APP_PREFIX}`; // por si lo usas luego
+
 // ===============================
 // Config de sesión
 // ===============================
-// Si quieres que SIEMPRE pida login al recargar, deja esto.
-// Si quieres recordar en la pestaña, comenta estas 3 líneas.
+// 👇 OJO: si dejas esto, SIEMPRE te fuerza login al recargar.
+// Si quieres “recordar” en la pestaña, comenta estas 3 líneas.
 STORE.removeItem("auth_ok");
 STORE.removeItem("auth_user");
 STORE.removeItem("opcua_url");
@@ -57,9 +60,15 @@ function showLogin() {
 function hideLogin() {
   loginOverlay?.classList.add("hidden");
   setError("");
+
+  // 1) habilita la app incluso si el evento se pierde
+  if (typeof window.__enableApp === "function") window.__enableApp();
+
+  // 2) compat con tu app.js (listener auth:ok)
   window.dispatchEvent(new Event("auth:ok"));
 }
 
+// toggle pass (opcional)
 btnTogglePass?.addEventListener("click", () => {
   if (!passInput) return;
   const isPwd = passInput.type === "password";
@@ -69,9 +78,9 @@ btnTogglePass?.addEventListener("click", () => {
 
 function labelFor(item) {
   // item: { url, host, ip, port, tcp_ok, source }
-  const ok  = item.tcp_ok ? "✅" : "⛔";
+  const ok = item.tcp_ok ? "✅" : "⛔";
   const src = item.source ? ` · ${item.source}` : "";
-  const ip  = item.ip && item.ip !== item.host ? ` (${item.ip})` : "";
+  const ip = item.ip && item.ip !== item.host ? ` (${item.ip})` : "";
   return `${ok} ${item.host}${ip}:${item.port}${src}`;
 }
 
@@ -80,24 +89,22 @@ function populateSelect(items) {
 
   ipSelect.innerHTML = "";
 
-  // Opción AUTO
   const optAuto = document.createElement("option");
   optAuto.value = "";
   optAuto.textContent = "Automático (recomendado)";
   ipSelect.appendChild(optAuto);
 
   const good = items.filter((x) => !!x.tcp_ok);
-  const bad  = items.filter((x) => !x.tcp_ok);
+  const bad = items.filter((x) => !x.tcp_ok);
 
   for (const it of [...good, ...bad]) {
     const opt = document.createElement("option");
-    opt.value = it.url;           // opc.tcp://x:4840
+    opt.value = it.url; // opc.tcp://x:4840
     opt.textContent = labelFor(it);
     ipSelect.appendChild(opt);
   }
 
-  if (good.length > 0) ipSelect.value = good[0].url;
-  else ipSelect.value = "";
+  ipSelect.value = good.length > 0 ? good[0].url : "";
 
   if (ipHint) {
     ipHint.textContent = `Encontrados: ${items.length} · TCP OK: ${good.length}`;
@@ -105,24 +112,25 @@ function populateSelect(items) {
 }
 
 // ===============================
-// Discover (anti "Unexpected token '<'")
+// Discover (anti “Unexpected token '<'”)
 // ===============================
 let discoverLoaded = false;
 
 async function loadDiscover() {
-  if (!ipSelect || discoverLoaded) return;   // evita spam
+  if (!ipSelect || discoverLoaded) return; // evita spam
   discoverLoaded = true;
 
   try {
     setError("");
 
     ipSelect.disabled = true;
-    ipSelect.innerHTML = `<option value="" disabled selected>Cargando endpoints…</option>`;
+    ipSelect.innerHTML =
+      `<option value="" disabled selected>Cargando endpoints…</option>`;
 
     const url = `${API_BASE}/api/opcua/discover`;
     console.log("DISCOVER URL =>", url);
-    const res = await fetch(url, { cache: "no-store" });
 
+    const res = await fetch(url, { cache: "no-store" });
     const ct = (res.headers.get("content-type") || "").toLowerCase();
     const raw = await res.text();
 
@@ -130,9 +138,9 @@ async function loadDiscover() {
       throw new Error(`HTTP ${res.status}: ${raw.slice(0, 200)}`);
     }
 
-    // si te devolvieron HTML por error de ruta/proxy, acá lo cazamos
+    // Si ctrlX te devolvió HTML (proxy/ruta), lo cazamos aquí
     if (!ct.includes("application/json")) {
-      const head = raw.slice(0, 120).replace(/\s+/g, " ");
+      const head = raw.slice(0, 140).replace(/\s+/g, " ");
       throw new Error(`Respuesta no-JSON (CT=${ct || "?"}): ${head}`);
     }
 
@@ -141,9 +149,12 @@ async function loadDiscover() {
   } catch (e) {
     console.error("discover error:", e);
     setError("No pude listar endpoints OPC UA: " + (e?.message ?? e));
-    ipSelect.innerHTML = `<option value="" disabled selected>Error cargando endpoints</option>`;
+    if (ipSelect) {
+      ipSelect.innerHTML =
+        `<option value="" disabled selected>Error cargando endpoints</option>`;
+    }
   } finally {
-    ipSelect.disabled = false;
+    if (ipSelect) ipSelect.disabled = false;
   }
 }
 
@@ -156,8 +167,6 @@ if (STORE.getItem("auth_ok") === "1") {
   showLogin();
 }
 
-// Si tu script está con defer, DOMContentLoaded igual funciona sin duplicar.
-// Si ya está cargado, ejecuta al toque.
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", loadDiscover, { once: true });
 } else {
@@ -192,7 +201,11 @@ loginForm?.addEventListener("submit", async (e) => {
 
     const raw = await r.text();
     let data = null;
-    try { data = JSON.parse(raw); } catch {}
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      data = null;
+    }
 
     if (!r.ok) {
       const msg =
