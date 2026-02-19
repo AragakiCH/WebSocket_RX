@@ -1,12 +1,5 @@
 // js/login.js
 // Login modal + OPC UA discover dropdown + login POST (/api/opcua/login)
-// - Soporta reverse-proxy (/api-websocket-rx) sin hardcodear rutas
-// - Evita “Unexpected token '<'” leyendo response como texto y validando content-type
-// - No “rompe” el gating: al loguear llama window.__enableApp() y además emite auth:ok
-//
-// Requiere en el HTML:
-//  - #loginOverlay, #loginForm, #loginErr, #userInput, #passInput, #ipSelect
-//  - (opcional) #btnTogglePass, #ipHint
 
 const loginOverlay = document.getElementById("loginOverlay");
 const loginForm = document.getElementById("loginForm");
@@ -19,32 +12,14 @@ const btnTogglePass = document.getElementById("btnTogglePass");
 
 const STORE = sessionStorage;
 
-// ===============================
-// URL base robusta para ctrlX reverse proxy
-// ===============================
 function computePrefix() {
-  // Ej: baseURI = https://192.168.17.60/api-websocket-rx/
-  // new URL(".", baseURI).pathname => "/api-websocket-rx/"
-  const dir = new URL(".", document.baseURI).pathname;
-  return dir.endsWith("/") ? dir.slice(0, -1) : dir; // "/api-websocket-rx"
+  const dir = new URL(".", document.baseURI).pathname; // "/api-websocket-rx/"
+  return dir.endsWith("/") ? dir.slice(0, -1) : dir;   // "/api-websocket-rx"
 }
 
-const APP_PREFIX = computePrefix(); // "" o "/api-websocket-rx"
+const APP_PREFIX = computePrefix();
 const API_BASE = `${location.origin}${APP_PREFIX}`;
-const WS_BASE = `${location.origin.replace(/^http/, "ws")}${APP_PREFIX}`; // por si lo usas luego
 
-// ===============================
-// Config de sesión
-// ===============================
-// 👇 OJO: si dejas esto, SIEMPRE te fuerza login al recargar.
-// Si quieres “recordar” en la pestaña, comenta estas 3 líneas.
-STORE.removeItem("auth_ok");
-STORE.removeItem("auth_user");
-STORE.removeItem("opcua_url");
-
-// ===============================
-// UI helpers
-// ===============================
 function setError(msg) {
   if (!loginErr) return;
   loginErr.hidden = !msg;
@@ -52,23 +27,26 @@ function setError(msg) {
 }
 
 function showLogin() {
-  loginOverlay?.classList.remove("hidden");
+  if (!loginOverlay) return;
+  loginOverlay.classList.remove("hidden");
   setError("");
   userInput?.focus();
 }
 
 function hideLogin() {
-  loginOverlay?.classList.add("hidden");
+  if (!loginOverlay) return;
+  loginOverlay.classList.add("hidden");
   setError("");
 
-  // 1) habilita la app incluso si el evento se pierde
-  if (typeof window.__enableApp === "function") window.__enableApp();
+  // ✅ habilita directo, sin depender de app.js
+  const btn = document.getElementById("btnConnect");
+  if (btn) btn.disabled = false;
 
-  // 2) compat con tu app.js (listener auth:ok)
+  // deja tus hooks igual por si quieres
+  if (typeof window.__enableApp === "function") window.__enableApp();
   window.dispatchEvent(new Event("auth:ok"));
 }
 
-// toggle pass (opcional)
 btnTogglePass?.addEventListener("click", () => {
   if (!passInput) return;
   const isPwd = passInput.type === "password";
@@ -77,7 +55,6 @@ btnTogglePass?.addEventListener("click", () => {
 });
 
 function labelFor(item) {
-  // item: { url, host, ip, port, tcp_ok, source }
   const ok = item.tcp_ok ? "✅" : "⛔";
   const src = item.source ? ` · ${item.source}` : "";
   const ip = item.ip && item.ip !== item.host ? ` (${item.ip})` : "";
@@ -99,46 +76,33 @@ function populateSelect(items) {
 
   for (const it of [...good, ...bad]) {
     const opt = document.createElement("option");
-    opt.value = it.url; // opc.tcp://x:4840
+    opt.value = it.url;
     opt.textContent = labelFor(it);
     ipSelect.appendChild(opt);
   }
 
   ipSelect.value = good.length > 0 ? good[0].url : "";
 
-  if (ipHint) {
-    ipHint.textContent = `Encontrados: ${items.length} · TCP OK: ${good.length}`;
-  }
+  if (ipHint) ipHint.textContent = `Encontrados: ${items.length} · TCP OK: ${good.length}`;
 }
 
-// ===============================
-// Discover (anti “Unexpected token '<'”)
-// ===============================
 let discoverLoaded = false;
-
 async function loadDiscover() {
-  if (!ipSelect || discoverLoaded) return; // evita spam
+  if (!ipSelect || discoverLoaded) return;
   discoverLoaded = true;
 
   try {
     setError("");
-
     ipSelect.disabled = true;
-    ipSelect.innerHTML =
-      `<option value="" disabled selected>Cargando endpoints…</option>`;
+    ipSelect.innerHTML = `<option value="" disabled selected>Cargando endpoints…</option>`;
 
     const url = `${API_BASE}/api/opcua/discover`;
-    console.log("DISCOVER URL =>", url);
-
     const res = await fetch(url, { cache: "no-store" });
+
     const ct = (res.headers.get("content-type") || "").toLowerCase();
     const raw = await res.text();
 
-    if (!res.ok) {
-      throw new Error(`HTTP ${res.status}: ${raw.slice(0, 200)}`);
-    }
-
-    // Si ctrlX te devolvió HTML (proxy/ruta), lo cazamos aquí
+    if (!res.ok) throw new Error(`HTTP ${res.status}: ${raw.slice(0, 200)}`);
     if (!ct.includes("application/json")) {
       const head = raw.slice(0, 140).replace(/\s+/g, " ");
       throw new Error(`Respuesta no-JSON (CT=${ct || "?"}): ${head}`);
@@ -149,23 +113,15 @@ async function loadDiscover() {
   } catch (e) {
     console.error("discover error:", e);
     setError("No pude listar endpoints OPC UA: " + (e?.message ?? e));
-    if (ipSelect) {
-      ipSelect.innerHTML =
-        `<option value="" disabled selected>Error cargando endpoints</option>`;
-    }
+    if (ipSelect) ipSelect.innerHTML = `<option value="" disabled selected>Error cargando endpoints</option>`;
   } finally {
     if (ipSelect) ipSelect.disabled = false;
   }
 }
 
-// ===============================
 // Boot
-// ===============================
-if (STORE.getItem("auth_ok") === "1") {
-  hideLogin();
-} else {
-  showLogin();
-}
+if (STORE.getItem("auth_ok") === "1") hideLogin();
+else showLogin();
 
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", loadDiscover, { once: true });
@@ -173,9 +129,7 @@ if (document.readyState === "loading") {
   loadDiscover();
 }
 
-// ===============================
 // Submit login
-// ===============================
 loginForm?.addEventListener("submit", async (e) => {
   e.preventDefault();
 
@@ -185,10 +139,7 @@ loginForm?.addEventListener("submit", async (e) => {
   const selectedUrl = (ipSelect?.value || "").trim();
   const urlToSend = selectedUrl ? selectedUrl : null;
 
-  if (!u || !p) {
-    setError("Faltan credenciales.");
-    return;
-  }
+  if (!u || !p) return setError("Faltan credenciales.");
 
   try {
     setError("");
@@ -201,19 +152,14 @@ loginForm?.addEventListener("submit", async (e) => {
 
     const raw = await r.text();
     let data = null;
-    try {
-      data = JSON.parse(raw);
-    } catch {
-      data = null;
-    }
+    try { data = JSON.parse(raw); } catch {}
 
     if (!r.ok) {
       const msg =
         data?.detail?.error
           ? `${data.detail.error}\n\nTried:\n${(data.detail.tried || []).slice(0, 10).join("\n")}`
           : (data?.detail ? JSON.stringify(data.detail) : raw.slice(0, 200) || "No pude autenticar OPC UA.");
-      setError(msg);
-      return;
+      return setError(msg);
     }
 
     STORE.setItem("auth_ok", "1");

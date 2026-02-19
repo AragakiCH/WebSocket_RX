@@ -38,7 +38,11 @@ function hideLogin() {
   loginOverlay.classList.add("hidden");
   setError("");
 
-  // habilita la app sí o sí
+  // ✅ habilita directo, sin depender de app.js
+  const btn = document.getElementById("btnConnect");
+  if (btn) btn.disabled = false;
+
+  // deja tus hooks igual por si quieres
   if (typeof window.__enableApp === "function") window.__enableApp();
   window.dispatchEvent(new Event("auth:ok"));
 }
