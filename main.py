@@ -21,6 +21,7 @@ import os
 from fastapi import Request
 from opcua import Client
 import threading
+import logging
 try:
     from utils.excel_logger import ExcelLogger
 except ImportError:
@@ -518,6 +519,8 @@ STATIC_DIR = (BASE_DIR / "frontend").resolve()
 app.include_router(router)
 # Sirve UI dentro del prefijo del reverse proxy
 app.mount(APP_PREFIX, StaticFiles(directory=str(STATIC_DIR), html=True), name="frontend")
+logging.getLogger("uvicorn").info("STATIC_DIR=%s", STATIC_DIR)
+logging.getLogger("uvicorn").info("APP_PREFIX=%s", APP_PREFIX)
 
 # (Opcional) Mantén root para debug directo por :8000
 #app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="frontend-root")
