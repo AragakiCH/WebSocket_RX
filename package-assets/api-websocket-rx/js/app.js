@@ -18,10 +18,10 @@ const chkAll = document.getElementById("chkAll");
 // URL base robusta para ctrlX reverse proxy
 // ===============================
 const parts = location.pathname.split("/").filter(Boolean);
-const APP_PREFIX = parts.length ? `/${parts[0]}` : "";
-const API_BASE = `${location.origin}${APP_PREFIX}`;
+window.APP_PREFIX = parts.length ? `/${parts[0]}` : "";
+window.API_BASE = `${location.origin}${window.APP_PREFIX}`;
 // ws/wss correcto
-const WS_BASE = `${location.origin.replace(/^http/, "ws")}${APP_PREFIX}`;
+window.WS_BASE = `${location.origin.replace(/^http/, "ws")}${window.APP_PREFIX}`;
 
 // --- state ---
 let ws = null;
@@ -187,7 +187,7 @@ chkAll?.addEventListener("change", () => {
 // Export RT
 // =====================================
 async function fetchExportStatus() {
-  const url = `${API_BASE}/api/export/status`;
+  const url = `${window.API_BASE}/api/export/status`;
   const res = await fetch(url, { cache: "no-store" });
   const raw = await res.text();
   if (!res.ok) throw new Error(raw.slice(0, 200));
@@ -226,7 +226,7 @@ async function startExport() {
 
   const tags = Array.from(selectedTags);
 
-  const res = await fetch(`${API_BASE}/api/export/start`, {
+  const res = await fetch(`${window.API_BASE}/api/export/start`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ tags }),
@@ -245,7 +245,7 @@ async function startExport() {
 }
 
 async function stopExport() {
-  const res = await fetch(`${API_BASE}/api/export/stop`, { method: "POST" });
+  const res = await fetch(`${window.API_BASE}/api/export/stop`, { method: "POST" });
   const raw = await res.text();
   if (!res.ok) throw new Error(raw.slice(0, 200));
 
@@ -298,7 +298,7 @@ btnExport?.addEventListener("click", async () => {
 // WebSocket connect/disconnect
 // =====================================
 btnConnect?.addEventListener("click", () => {
-  const url = `${WS_BASE}/ws`;
+  const url = `${window.WS_BASE}/ws`;
   console.log("Conectando WS a:", url);
 
   ws = new WebSocket(url);

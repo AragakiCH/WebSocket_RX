@@ -71,13 +71,43 @@ class RtExportManager:
             if not self.active or not self._ws:
                 return
 
-            ts = sample.get("timestamp", time.time())
-            dt = datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+            if not isinstance(sample, dict):
+                return
+
             flat = _flatten(sample)
 
-            row = [dt] + [flat.get(t) for t in self.tags]
+            # timestamp robusto
+            ts_raw = sample.get("timestamp", flat.get("timestamp", time.time()))
+
+            try:
+                if isinstance(ts_raw, (int, float)):
+                    dt = datetime.fromtimestamp(float(ts_raw))
+                elif isinstance(ts_raw, str):
+                    s = ts_raw.strip()
+                    # string numérico epoch
+                    try:
+                        dt = datetime.fromtimestamp(float(s))
+                    except Exception:
+                        # ISO string (ej. 2026-02-20T15:41:36.833Z)
+                        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+                else:
+                    dt = datetime.now()
+            except Exception:
+                dt = datetime.now()
+
+            dt_str = dt.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+
+            row = [dt_str] + [flat.get(t) for t in self.tags]
             self._ws.append(row)
             self.rows_written += 1
+
+            # debug temporal
+            if self.rows_written <= 3 or self.rows_written % 20 == 0:
+                import logging
+                logging.getLogger("uvicorn").info(
+                    "RT export wrote row #%s | ts=%s",
+                    self.rows_written, dt_str
+                )
 
             self._save()
 

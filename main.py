@@ -91,6 +91,11 @@ def _tcp_ok_host_or_ip(host: str, port: int) -> tuple[bool, str | None]:
     return bool(ok), ip
     
 def push_to_log(sample: dict):
+    logging.getLogger("uvicorn").info(
+        "push_to_log llamado | active=%s | sample_keys=%s",
+        export_mgr.active,
+        list(sample.keys())[:10] if isinstance(sample, dict) else type(sample)
+        )
     try:
         log_queue.put_nowait(sample)
     except queue.Full:
@@ -101,11 +106,11 @@ def push_to_log(sample: dict):
     except Exception:
         pass
 
-    # ✅ NUEVO: si está exportando, mete fila
+    # ✅ EXPORT RT
     try:
         export_mgr.ingest(sample)
-    except Exception:
-        pass
+    except Exception as e:
+        logging.getLogger("uvicorn").exception("Error en export_mgr.ingest: %s", e)
 
 IS_EMBEDDED = os.getenv("PSI_EMBEDDED", "false").lower() == "true"
 
@@ -160,6 +165,9 @@ app = FastAPI()
 log_queue: queue.Queue = queue.Queue(maxsize=10000)
 excel_logger = None
 plc = None  # <- no arrancar aquí
+
+app.state.export_mgr = export_mgr
+app.state.log_queue = log_queue
 
 app.add_middleware(
     CORSMiddleware,

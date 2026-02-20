@@ -16,6 +16,15 @@ async def websocket_endpoint(websocket: WebSocket):
             if sample:
                 seq = sample.get("__seq__")
                 if seq != last_seq:
+                    # ✅ enviar a export RT también
+                    try:
+                        export_mgr = getattr(websocket.app.state, "export_mgr", None)
+                        if export_mgr is not None:
+                            export_mgr.ingest(sample)
+                    except Exception as e:
+                        log.exception("Error export_mgr.ingest en ws_endpoint: %s", e)
+
+                    # ✅ enviar a UI
                     await websocket.send_json(sample)
                     last_seq = seq
 
