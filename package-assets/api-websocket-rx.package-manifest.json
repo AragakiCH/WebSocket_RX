@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.boschrexroth.com/ctrlx-automation/ctrlx-core/apps/package-manifest/package-manifest.v1.3.schema.json",
   "id": "api-websocket-rx",
   "name": "api-websocket-rx",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "menus": {
     "sidebar": [
       {
@@ -10,7 +10,7 @@
         "title": "WebSocket RX",
         "icon": "bosch-ic-diagnostics",
         "link": "index.html",
-        "target": "api-websocket-rx"
+        "target": "_self"
       }
     ]
   },
