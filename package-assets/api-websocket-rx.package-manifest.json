@@ -1,26 +1,26 @@
 {
-  "$schema": "https://json-schema.boschrexroth.com/ctrlx-automation/ctrlx-core/apps/package-manifest/package-manifest.v1.3.schema.json",
-  "id": "api-websocket-rx",
-  "name": "api-websocket-rx",
-  "version": "1.0.4",
-  "menus": {
-    "sidebar": [
-      {
-        "id": "api-websocket-rx-main",
-        "title": "WebSocket RX",
-        "icon": "bosch-ic-diagnostics",
-        "link": "index.html",
-        "target": "_self"
-      }
-    ]
-  },
-  "services": {
-    "proxyMapping": [
-      {
-        "name": "api-websocket-rx.web",
-        "url": "/api-websocket-rx",
-        "binding": ":8000"
-      }
-    ]
-  }
+	"$schema": "https://json-schema.boschrexroth.com/ctrlx-automation/ctrlx-core/apps/package-manifest/package-manifest.v1.3.schema.json",
+	"id": "api-websocket-rx",
+	"name": "api-websocket-rx",
+	"version": "1.0.1",
+	"menus": {
+		"sidebar": [
+			{
+				"id": "api-websocket-rx-main",
+				"title": "WebSocket RX",
+				"icon": "bosch-ic-diagnostics",
+				"link": "/api-websocket-rx/",
+				"target": "api-websocket-rx"
+			}
+		]
+	},
+	"services": {
+		"proxyMapping": [
+			{
+				"name": "api-websocket-rx.web",
+				"url": "/api-websocket-rx",
+				"binding": ":8000"
+			}
+		]
+	}
 }
