@@ -42,6 +42,12 @@ parts:
     source: package-assets/
     organize:
       "*": package-assets/
+      
+  gui-meta:
+    plugin: dump
+    source: meta/
+    organize:
+      "gui/*": meta/gui/
 
 apps:
   websocket-api:

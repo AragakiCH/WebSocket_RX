@@ -9,7 +9,7 @@
         "id": "api-websocket-rx-main",
         "title": "WebSocket RX",
         "icon": "bosch-ic-diagnostics",
-        "link": "/package-assets/api-websocket-rx/index.html",
+        "link": "/api-websocket-rx/",
         "target": "_self"
       }
     ]
