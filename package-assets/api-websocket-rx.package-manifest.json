@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.boschrexroth.com/ctrlx-automation/ctrlx-core/apps/package-manifest/package-manifest.v1.3.schema.json",
   "id": "api-websocket-rx",
   "name": "api-websocket-rx",
-  "version": "1.0.8",
+  "version": "1.0.10",
   "menus": {
     "sidebar": [
       {
@@ -20,6 +20,31 @@
         "name": "api-websocket-rx.web",
         "url": "/api-websocket-rx",
         "binding": ":8000"
+      }
+    ]
+  },
+  "uiExtensions": {
+    "dashboard": [
+      {
+        "order": 10,
+        "src": "/api-websocket-rx/widget/websocket-rx-widget.js",
+        "tag": "websocket-rx-widget",
+        "title": "WebSocket RX",
+        "description": "Monitoreo OPC UA / WebSocket",
+        "categories": ["OPC UA"],
+        "image": "/api-websocket-rx/widget/websocket-rx-widget.svg",
+        "initialSize": {
+          "rows": 6,
+          "cols": 8
+        },
+        "minSize": {
+          "rows": 4,
+          "cols": 6
+        },
+        "maxSize": {
+          "rows": 8,
+          "cols": 12
+        }
       }
     ]
   }
