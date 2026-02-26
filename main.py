@@ -526,7 +526,8 @@ STATIC_DIR = (BASE_DIR / "frontend").resolve()
 
 app.include_router(router)
 # Sirve UI dentro del prefijo del reverse proxy
-app.mount(APP_PREFIX, StaticFiles(directory=str(STATIC_DIR), html=True), name="frontend")
+##app.mount(APP_PREFIX, StaticFiles(directory=str(STATIC_DIR), html=True), name="frontend")
+app.mount("/api-websocket-rx/widget", StaticFiles(directory="frontend/widget"), name="widget")
 logging.getLogger("uvicorn").info("STATIC_DIR=%s", STATIC_DIR)
 logging.getLogger("uvicorn").info("APP_PREFIX=%s", APP_PREFIX)
 
