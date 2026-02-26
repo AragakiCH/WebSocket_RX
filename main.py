@@ -152,7 +152,8 @@ CURRENT_OPCUA_USER = None
 CURRENT_OPCUA_PASS = None
 CURRENT_OPCUA_URL  = None
 APP_PREFIX = os.getenv("APP_PREFIX", "/api-websocket-rx")
-router = APIRouter(prefix=APP_PREFIX)   
+router = APIRouter(prefix=APP_PREFIX)
+
 
 #USER     = os.getenv("OPCUA_USER", "boschrexroth")
 #PASSWORD = os.getenv("OPCUA_PASSWORD", "boschrexroth")
@@ -523,11 +524,28 @@ def export_download():
 
 BASE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 STATIC_DIR = (BASE_DIR / "frontend").resolve()
+FRONTEND_DIR = (BASE_DIR / "frontend").resolve()
+WIDGET_DIR = (FRONTEND_DIR / "widget").resolve()
+
+print("BASE_DIR =", BASE_DIR)
+print("FRONTEND_DIR =", FRONTEND_DIR, FRONTEND_DIR.exists())
+print("WIDGET_DIR =", WIDGET_DIR, WIDGET_DIR.exists())
 
 app.include_router(router)
 # Sirve UI dentro del prefijo del reverse proxy
 ##app.mount(APP_PREFIX, StaticFiles(directory=str(STATIC_DIR), html=True), name="frontend")
-app.mount("/api-websocket-rx/widget", StaticFiles(directory="frontend/widget"), name="widget")
+app.mount(
+    f"{APP_PREFIX}/widget",
+    StaticFiles(directory=str(WIDGET_DIR), html=False),
+    name="widget"
+)
+
+# ✅ luego el frontend general
+app.mount(
+    APP_PREFIX,
+    StaticFiles(directory=str(FRONTEND_DIR), html=True),
+    name="frontend"
+)
 logging.getLogger("uvicorn").info("STATIC_DIR=%s", STATIC_DIR)
 logging.getLogger("uvicorn").info("APP_PREFIX=%s", APP_PREFIX)
 

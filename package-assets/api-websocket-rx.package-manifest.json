@@ -2,20 +2,24 @@
   "$schema": "https://json-schema.boschrexroth.com/ctrlx-automation/ctrlx-core/apps/package-manifest/package-manifest.v1.3.schema.json",
   "id": "api-websocket-rx",
   "name": "api-websocket-rx",
-  "version": "1.0.9",
-  "uiExtensions": {
-    "dashboard": [
+  "version": "1.0.8",
+  "menus": {
+    "sidebar": [
       {
-        "order": 10,
-        "src": "/api-websocket-rx/widget/websocket-rx-widget.js",
-        "tag": "websocket-rx-widget",
+        "id": "api-websocket-rx-main",
         "title": "WebSocket RX",
-        "description": "Monitoreo OPC UA / WebSocket",
-        "categories": ["Connectivity", "OPC UA"],
-        "initialSize": {
-          "rows": 6,
-          "cols": 8
-        }
+        "icon": "bosch-ic-diagnostics",
+        "link": "/api-websocket-rx/",
+        "target": "_self"
+      }
+    ]
+  },
+  "services": {
+    "proxyMapping": [
+      {
+        "name": "api-websocket-rx.web",
+        "url": "/api-websocket-rx",
+        "binding": ":8000"
       }
     ]
   }
