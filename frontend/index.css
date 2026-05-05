@@ -391,6 +391,58 @@ tbody td:last-child{
   text-align: center;
 }
 
+/* ===========================
+   Logout button (destructive)
+   =========================== */
+.btn-danger {
+  background: linear-gradient(180deg, rgba(239, 68, 68, 0.18), rgba(239, 68, 68, 0.08));
+  border-color: rgba(239, 68, 68, 0.28);
+  color: #FCA5A5;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.btn-danger:hover {
+  border-color: rgba(239, 68, 68, 0.5);
+  background: linear-gradient(180deg, rgba(239, 68, 68, 0.28), rgba(239, 68, 68, 0.14));
+  color: #FECACA;
+  box-shadow: 0 14px 32px rgba(239, 68, 68, 0.25);
+}
+
+.logout-icon {
+  font-size: 1.05rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+/* Fila programa: select + botón lupa lado a lado */
+.program-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  column-gap: 10px;
+  align-items: center;
+}
+
+.program-row select {
+  height: 44px;
+  margin: 0 !important;
+}
+
+.program-row button {
+  height: 44px;
+  min-width: 50px;
+  padding: 0 14px;
+  font-size: 1rem;
+  white-space: nowrap;
+}
+
+.muted {
+  display: block;
+  margin-top: 6px;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
 
 
 

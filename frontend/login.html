@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ctrlX Login</title>
+    <link rel="stylesheet" href="index.css" />
+  </head>
+  <body>
+    <div id="loginOverlay" class="modal-overlay">
+      <div
+        class="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="loginTitle"
+      >
+        <div class="modal-header">
+          <h2 id="loginTitle">Iniciar sesión</h2>
+          <div class="modal-sub">Panel de datos · ctrlX</div>
+        </div>
+
+        <form id="loginForm" class="modal-body">
+          <div class="field">
+            <label for="userInput">Usuario</label>
+            <input
+              id="userInput"
+              type="text"
+              placeholder="Ej: admin"
+              autocomplete="username"
+              required
+            />
+          </div>
+
+          <div class="field">
+            <label for="passInput">Contraseña</label>
+            <div class="pass-row">
+              <input
+                id="passInput"
+                type="password"
+                placeholder="Ej: 1234"
+                autocomplete="current-password"
+                required
+              />
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="ipSelect">Endpoint OPC UA</label>
+            <select id="ipSelect" required>
+              <option value="" disabled selected>Cargando endpoints…</option>
+            </select>
+            <small id="ipHint" class="muted"></small>
+          </div>
+
+          <!-- 👇 NUEVO: Programa + botón lupa -->
+          <div class="field">
+            <label for="programSelect">Programa</label>
+            <div class="program-row">
+              <select id="programSelect" required>
+                <option value="" disabled selected>
+                  Primero pulsa la 🔍 para listar programas
+                </option>
+              </select>
+              <button
+                type="button"
+                id="btnDiscoverPrograms"
+                class="btn btn-secondary"
+                title="Buscar programas en el PLC"
+              >
+                🔍
+              </button>
+            </div>
+            <small id="programHint" class="muted"></small>
+          </div>
+
+          <div id="loginErr" class="login-error" hidden></div>
+
+          <div class="modal-footer">
+            <button id="btnLogin" class="btn" type="submit">Ingresar</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <script defer src="./js/login.js?v=20260220-2"></script>
+  </body>
+</html>

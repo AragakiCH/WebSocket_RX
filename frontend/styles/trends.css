@@ -1,0 +1,145 @@
+/* trends.css — estilos específicos de la vista Trends */
+
+.trends-layout {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 1rem;
+  align-items: start;
+}
+
+/* Panel izquierdo: lista de tags con checkbox */
+.tags-panel {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem;
+  max-height: calc(100vh - 200px);
+  overflow-y: auto;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: var(--shadow);
+}
+
+.tags-panel h3 {
+  font-size: 0.95rem;
+  font-weight: 700;
+  margin-bottom: 0.8rem;
+  color: rgba(234, 240, 255, 0.85);
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+
+.tags-panel .tag-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.55rem 0.7rem;
+  border-radius: 10px;
+  margin-bottom: 0.3rem;
+  border: 1px solid transparent;
+  transition: background 0.15s ease, border-color 0.15s ease;
+  cursor: pointer;
+}
+
+.tags-panel .tag-row:hover {
+  background: rgba(88, 199, 255, 0.06);
+  border-color: rgba(88, 199, 255, 0.2);
+}
+
+.tags-panel .tag-row.active {
+  background: rgba(88, 199, 255, 0.10);
+  border-color: rgba(88, 199, 255, 0.35);
+}
+
+.tags-panel .tag-row label {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.85rem;
+  color: rgba(88, 199, 255, 0.95);
+  cursor: pointer;
+  flex: 1;
+  user-select: none;
+}
+
+.tags-panel .tag-row input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: #58c7ff;
+  cursor: pointer;
+}
+
+.tags-panel .tag-row .tag-value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.8rem;
+  color: rgba(234, 240, 255, 0.7);
+  margin-left: 0.5rem;
+}
+
+.tags-panel .empty-state {
+  text-align: center;
+  color: var(--muted);
+  padding: 1.5rem 0.5rem;
+  font-size: 0.88rem;
+}
+
+/* Panel derecho: gráfica */
+.chart-panel {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: var(--shadow);
+}
+
+.chart-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.8rem;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.chart-toolbar .info {
+  font-size: 0.88rem;
+  color: var(--muted);
+}
+
+.chart-toolbar .info strong {
+  color: var(--accent);
+}
+
+.chart-controls {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.chart-controls label {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.chart-wrapper {
+  position: relative;
+  height: 65vh;
+  min-height: 400px;
+  background: rgba(0, 0, 0, 0.15);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 0.8rem;
+}
+
+/* Responsive */
+@media (max-width: 900px) {
+  .trends-layout {
+    grid-template-columns: 1fr;
+  }
+  .tags-panel {
+    max-height: 300px;
+  }
+}

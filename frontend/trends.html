@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <title>ctrlX · Trends</title>
+    <link rel="stylesheet" href="index.css" />
+    <link rel="stylesheet" href="styles/trends.css" />
+  </head>
+
+  <body>
+    <header>
+      <h1>📈 Trends</h1>
+      <div>
+        <button id="btnConnect" class="btn">Obtener Datos del PLC</button>
+        <button id="btnDisconnect" class="btn" disabled>Desconectar</button>
+        <button id="btnBackDashboard" class="btn btn-secondary">
+          ← Dashboard
+        </button>
+        <button id="btnLogout" class="btn btn-danger" title="Cerrar sesión">
+          <span class="logout-icon">⏻</span> Cerrar sesión
+        </button>
+      </div>
+    </header>
+
+    <main>
+      <div class="toolbar">
+        <div id="status" class="status">WebSocket desconectado.</div>
+      </div>
+
+      <div class="trends-layout">
+        <!-- Panel izquierdo: tags -->
+        <div class="tags-panel">
+          <h3>Variables disponibles</h3>
+          <div id="tagsList">
+            <div class="empty-state">
+              Conéctate al PLC para ver los tags disponibles.
+            </div>
+          </div>
+        </div>
+
+        <!-- Panel derecho: gráfica -->
+        <div class="chart-panel">
+          <div class="chart-toolbar">
+            <div class="info">
+              Series activas:
+              <strong id="activeCount">0</strong>
+            </div>
+            <div class="chart-controls">
+              <button id="btnClearChart" class="btn btn-secondary">
+                Limpiar
+              </button>
+            </div>
+          </div>
+
+          <div class="chart-wrapper">
+            <canvas id="trendsChart"></canvas>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- Guardia de sesión + navegación -->
+    <script>
+      (function () {
+        const parts = location.pathname.split("/").filter(Boolean);
+        const prefix = parts.length ? `/${parts[0]}` : "";
+
+        if (sessionStorage.getItem("auth_ok") !== "1") {
+          location.replace(`${prefix}/login`);
+          return;
+        }
+
+        document
+          .getElementById("btnBackDashboard")
+          ?.addEventListener("click", () => {
+            location.href = `${prefix}/dashboard`;
+          });
+
+        document.getElementById("btnLogout")?.addEventListener("click", () => {
+          if (confirm("¿Seguro que deseas cerrar sesión?")) {
+            sessionStorage.clear();
+            location.replace(`${prefix}/login`);
+          }
+        });
+      })();
+    </script>
+
+    <!-- Chart.js desde CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+    <!-- Lógica de Trends -->
+    <script defer src="./js/trends.js?v=20260220-2"></script>
+  </body>
+</html>

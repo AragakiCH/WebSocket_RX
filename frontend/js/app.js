@@ -347,3 +347,41 @@ btnDisconnect?.addEventListener("click", () => {
 // =====================================
 setExportButtonUI();
 pollExportStatus();
+
+
+// =====================================
+// Logout
+// =====================================
+const btnLogout = document.getElementById("btnLogout");
+
+function doLogout() {
+  // 1) Cierra WebSocket si está abierto
+  try {
+    if (ws) {
+      ws.close();
+      ws = null;
+    }
+  } catch (e) {
+    console.warn("Error cerrando WS en logout:", e);
+  }
+
+  // 2) Detiene polling de export
+  if (exportPoll) {
+    clearInterval(exportPoll);
+    exportPoll = null;
+  }
+
+  // 3) Limpia sessionStorage (auth_ok, auth_user, opcua_url, etc.)
+  sessionStorage.clear();
+
+  // 4) Redirige al login
+  const parts = location.pathname.split("/").filter(Boolean);
+  const prefix = parts.length ? `/${parts[0]}` : "";
+  window.location.replace(`${prefix}/login`);
+}
+
+btnLogout?.addEventListener("click", () => {
+  if (confirm("¿Seguro que deseas cerrar sesión?")) {
+    doLogout();
+  }
+});

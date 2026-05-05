@@ -219,7 +219,7 @@ def _startup():
 
                 if url:
                     log.info("OPC UA elegido: %s", url)
-                    _plc = PLCReader(url, user, password, data_buffer, buffer_size=100)
+                    _plc = PLCReader(url, user, password, data_buffer, buffer_size=100, on_sample=push_to_log)
                     _plc.start()
                     plc = _plc
                     backoff = 1.0
@@ -531,21 +531,42 @@ print("BASE_DIR =", BASE_DIR)
 print("FRONTEND_DIR =", FRONTEND_DIR, FRONTEND_DIR.exists())
 print("WIDGET_DIR =", WIDGET_DIR, WIDGET_DIR.exists())
 
+# 👇 RUTAS EXPLÍCITAS para login y dashboard (deben ir ANTES del mount)
+@router.get("/")
+def root_redirect():
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url=f"{APP_PREFIX}/login")
+
+@router.get("/login")
+def serve_login():
+    return FileResponse(str(FRONTEND_DIR / "login.html"))
+
+@router.get("/dashboard")
+def serve_dashboard():
+    return FileResponse(str(FRONTEND_DIR / "index.html"))
+
+# 👇 NUEVA RUTA
+@router.get("/trends")
+def serve_trends():
+    return FileResponse(str(FRONTEND_DIR / "trends.html"))
+
+# Incluye el router (con las rutas /login, /dashboard y todas las /api/...)
 app.include_router(router)
-# Sirve UI dentro del prefijo del reverse proxy
-##app.mount(APP_PREFIX, StaticFiles(directory=str(STATIC_DIR), html=True), name="frontend")
+
+# Widget (estáticos)
 app.mount(
     f"{APP_PREFIX}/widget",
     StaticFiles(directory=str(WIDGET_DIR), html=False),
     name="widget"
 )
 
-# ✅ luego el frontend general
+# 👇 Frontend SIN html=True para que /login y /dashboard no sean pisados
 app.mount(
     APP_PREFIX,
-    StaticFiles(directory=str(FRONTEND_DIR), html=True),
+    StaticFiles(directory=str(FRONTEND_DIR), html=False),
     name="frontend"
 )
+
 logging.getLogger("uvicorn").info("STATIC_DIR=%s", STATIC_DIR)
 logging.getLogger("uvicorn").info("APP_PREFIX=%s", APP_PREFIX)
 

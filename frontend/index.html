@@ -3,70 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <title>ctrlX WebSocket UI</title>
-
-    <!-- CSS externo -->
     <link rel="stylesheet" href="index.css" />
   </head>
 
   <body>
-    <!-- LOGIN MODAL -->
-    <div id="loginOverlay" class="modal-overlay">
-      <div
-        class="modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="loginTitle"
-      >
-        <div class="modal-header">
-          <h2 id="loginTitle">Iniciar sesión</h2>
-          <div class="modal-sub">Panel de datos · ctrlX</div>
-        </div>
-
-        <form id="loginForm" class="modal-body">
-          <div class="field">
-            <label for="userInput">Usuario</label>
-            <input
-              id="userInput"
-              type="text"
-              placeholder="Ej: admin"
-              autocomplete="username"
-              required
-            />
-          </div>
-
-          <div class="field">
-            <label for="passInput">Contraseña</label>
-            <div class="pass-row">
-              <input
-                id="passInput"
-                type="password"
-                placeholder="Ej: 1234"
-                autocomplete="current-password"
-                required
-              />
-              <!-- <button type="button" id="btnTogglePass" class="btn btn-ghost">
-                Mostrar
-              </button> -->
-            </div>
-          </div>
-
-          <div class="field">
-            <label for="ipSelect">Endpoint OPC UA</label>
-            <select id="ipSelect" required>
-              <option value="" disabled selected>Cargando endpoints…</option>
-            </select>
-            <small id="ipHint" class="muted"></small>
-          </div>
-
-          <div id="loginErr" class="login-error" hidden></div>
-
-          <div class="modal-footer">
-            <button id="btnLogin" class="btn" type="submit">Ingresar</button>
-          </div>
-        </form>
-      </div>
-    </div>
-
     <header>
       <h1>ctrlX WebSocket Demo</h1>
       <div>
@@ -74,6 +14,12 @@
           Obtener Datos del PLC
         </button>
         <button id="btnDisconnect" class="btn" disabled>Desconectar</button>
+        <button id="btnTrends" class="btn btn-secondary" title="Ver tendencias">
+          📈 Trends
+        </button>
+        <button id="btnLogout" class="btn btn-danger" title="Cerrar sesión">
+          <span class="logout-icon">⏻</span> Cerrar sesión
+        </button>
       </div>
     </header>
 
@@ -103,7 +49,25 @@
       </table>
     </main>
 
-  <script defer src="./js/app.js?v=20260220-1"></script>
-  <script defer src="./js/login.js?v=20260220-1"></script>
+    <!-- 👇 Guardia: si no hay sesión, redirige al login -->
+    <script>
+      (function () {
+        const parts = location.pathname.split("/").filter(Boolean);
+        const prefix = parts.length ? `/${parts[0]}` : "";
+        if (sessionStorage.getItem("auth_ok") !== "1") {
+          location.replace(`${prefix}/login`);
+        }
+      })();
+    </script>
+
+    <script>
+      document.getElementById("btnTrends")?.addEventListener("click", () => {
+        const parts = location.pathname.split("/").filter(Boolean);
+        const prefix = parts.length ? `/${parts[0]}` : "";
+        location.href = `${prefix}/trends`;
+      });
+    </script>
+
+    <script defer src="./js/app.js?v=20260220-1"></script>
   </body>
 </html>
