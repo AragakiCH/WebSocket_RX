@@ -1,62 +1,100 @@
 // js/trends.js
-// Vista Trends — gráfica en tiempo real con Chart.js
-// - WebSocket propio (no depende del dashboard)
-// - Selecciona tags por checkbox para graficar/desgraficar
-// - Mantiene un historial circular de N puntos por serie
+// Vista Trends — reutiliza el WebSocket compartido
+// - Persiste selección de tags en sessionStorage
 
 (() => {
-  // ============================
-  // Refs UI
-  // ============================
-  const btnConnect = document.getElementById("btnConnect");
-  const btnDisconnect = document.getElementById("btnDisconnect");
-  const btnClearChart = document.getElementById("btnClearChart");
-  const statusDiv = document.getElementById("status");
   const tagsList = document.getElementById("tagsList");
   const activeCount = document.getElementById("activeCount");
   const canvas = document.getElementById("trendsChart");
+  const btnClearChart = document.getElementById("btnClearChart");
+  const connStatusBadge = document.getElementById("connStatusBadge");
 
-  // ============================
-  // Config
-  // ============================
-  const MAX_POINTS = 500; // 👈 puntos por serie en memoria (fijo)
-
-  // ============================
-  // URLs (mismo cálculo que en app.js)
-  // ============================
-  const parts = location.pathname.split("/").filter(Boolean);
-  const APP_PREFIX = parts.length ? `/${parts[0]}` : "";
-  const WS_BASE = `${location.origin.replace(/^http/, "ws")}${APP_PREFIX}`;
-
-  // ============================
-  // State
-  // ============================
-  let ws = null;
+  const MAX_POINTS = 500;
   let lastRender = 0;
-
-  // tags actualmente disponibles (último frame del WS)
   let currentTags = {};
-
-  // tags seleccionados para graficar
   const selectedTags = new Set();
-
-  // historial: { "Tag.Path": [{x: ts, y: val}, ...] }
   const seriesData = {};
-
-  // colores asignados a cada tag (consistentes)
   const seriesColors = {};
+
   const COLOR_PALETTE = [
     "#58C7FF", "#A78BFA", "#22C55E", "#EF4444", "#F59E0B",
     "#EC4899", "#14B8A6", "#F97316", "#84CC16", "#06B6D4",
     "#8B5CF6", "#FB7185", "#10B981", "#FBBF24", "#3B82F6",
   ];
   let colorIdx = 0;
+
   function colorFor(tag) {
     if (!seriesColors[tag]) {
       seriesColors[tag] = COLOR_PALETTE[colorIdx % COLOR_PALETTE.length];
       colorIdx++;
     }
     return seriesColors[tag];
+  }
+
+  function setConnBadge(online) {
+    if (!connStatusBadge) return;
+    if (online) {
+      connStatusBadge.className = "conn-badge online";
+      connStatusBadge.innerHTML = `<i class="fa-solid fa-circle"></i> Conectado`;
+    } else {
+      connStatusBadge.className = "conn-badge offline";
+      connStatusBadge.innerHTML = `<i class="fa-solid fa-circle"></i> Desconectado`;
+    }
+  }
+
+  // ============================
+  // Persistencia de selección
+  // ============================
+  const STORAGE_KEY_SELECTED = "trends_selected_tags";
+  const STORAGE_KEY_SERIES = "trends_series_data";
+
+  function saveSelection() {
+    try {
+      sessionStorage.setItem(STORAGE_KEY_SELECTED, JSON.stringify([...selectedTags]));
+    } catch (e) {
+      console.warn("No pude guardar selección:", e);
+    }
+  }
+
+  function loadSelection() {
+    try {
+      const saved = sessionStorage.getItem(STORAGE_KEY_SELECTED);
+      if (saved) {
+        const tags = JSON.parse(saved);
+        tags.forEach((tag) => selectedTags.add(tag));
+        console.log("[Trends] Selección restaurada:", tags);
+      }
+    } catch (e) {
+      console.warn("No pude cargar selección:", e);
+    }
+  }
+
+  function saveSeriesData() {
+    try {
+      // Solo guardar los últimos 100 puntos por serie para no llenar sessionStorage
+      const compressed = {};
+      for (const [tag, points] of Object.entries(seriesData)) {
+        compressed[tag] = points.slice(-100);
+      }
+      sessionStorage.setItem(STORAGE_KEY_SERIES, JSON.stringify(compressed));
+    } catch (e) {
+      console.warn("No pude guardar series:", e);
+    }
+  }
+
+  function loadSeriesData() {
+    try {
+      const saved = sessionStorage.getItem(STORAGE_KEY_SERIES);
+      if (saved) {
+        const compressed = JSON.parse(saved);
+        for (const [tag, points] of Object.entries(compressed)) {
+          seriesData[tag] = points;
+        }
+        console.log("[Trends] Series restauradas:", Object.keys(seriesData));
+      }
+    } catch (e) {
+      console.warn("No pude cargar series:", e);
+    }
   }
 
   // ============================
@@ -72,39 +110,45 @@
       parsing: false,
       plugins: {
         legend: {
-          labels: { color: "#EAF0FF", font: { size: 12 } },
+          labels: {
+            color: "#2B2F33",
+            font: { size: 12, weight: "600" },
+            padding: 12,
+            usePointStyle: true,
+            pointStyle: "circle",
+          },
         },
         tooltip: {
-          backgroundColor: "rgba(15, 20, 40, 0.95)",
-          titleColor: "#EAF0FF",
-          bodyColor: "#EAF0FF",
-          borderColor: "rgba(88,199,255,0.4)",
-          borderWidth: 1,
+          backgroundColor: "rgba(255, 255, 255, 0.98)",
+          titleColor: "#2B2F33",
+          bodyColor: "#525F6B",
+          borderColor: "#007BC0",
+          borderWidth: 2,
+          padding: 12,
+          boxPadding: 6,
+          usePointStyle: true,
         },
       },
       scales: {
         x: {
           type: "linear",
           ticks: {
-            color: "rgba(234,240,255,0.65)",
-            callback: (v) => {
-              const d = new Date(v);
-              return d.toLocaleTimeString();
-            },
+            color: "#525F6B",
+            font: { size: 11 },
+            callback: (v) => new Date(v).toLocaleTimeString(),
           },
-          grid: { color: "rgba(255,255,255,0.06)" },
+          grid: { color: "#DFE3E6", lineWidth: 1 },
+          border: { color: "#C5CDD3", width: 2 },
         },
         y: {
-          ticks: { color: "rgba(234,240,255,0.65)" },
-          grid: { color: "rgba(255,255,255,0.06)" },
+          ticks: { color: "#525F6B", font: { size: 11 } },
+          grid: { color: "#DFE3E6", lineWidth: 1 },
+          border: { color: "#C5CDD3", width: 2 },
         },
       },
     },
   });
 
-  // ============================
-  // Utils
-  // ============================
   function flattenObject(obj, prefix = "", out = {}) {
     if (!obj || typeof obj !== "object") return out;
     for (const [k, v] of Object.entries(obj)) {
@@ -133,9 +177,6 @@
     return Number(v);
   }
 
-  // ============================
-  // Render lista de tags (panel izquierdo)
-  // ============================
   function renderTagsList() {
     if (!tagsList) return;
 
@@ -143,7 +184,8 @@
     if (entries.length === 0) {
       tagsList.innerHTML = `
         <div class="empty-state">
-          Conéctate al PLC para ver los tags disponibles.
+          <i class="fa-solid fa-plug-circle-xmark"></i>
+          <p>Esperando datos del WebSocket...</p>
         </div>`;
       return;
     }
@@ -185,6 +227,7 @@
             removeDataset(tag);
           }
           updateActiveCount();
+          saveSelection(); // 👈 NUEVO: guarda al cambiar
         });
 
         tagsList.appendChild(row);
@@ -196,8 +239,7 @@
       if (row) {
         const span = row.querySelector("[data-val]");
         if (span) {
-          span.textContent =
-            typeof val === "object" ? JSON.stringify(val) : String(val);
+          span.textContent = typeof val === "object" ? JSON.stringify(val) : String(val);
         }
       }
     }
@@ -207,12 +249,8 @@
     if (activeCount) activeCount.textContent = String(selectedTags.size);
   }
 
-  // ============================
-  // Datasets de la gráfica
-  // ============================
   function ensureDataset(tag) {
     if (!seriesData[tag]) seriesData[tag] = [];
-
     const exists = chart.data.datasets.some((d) => d.label === tag);
     if (exists) return;
 
@@ -235,12 +273,8 @@
     chart.update("none");
   }
 
-  // ============================
-  // Push de un nuevo frame al historial
-  // ============================
   function pushFrame(flat) {
     const ts = Date.now();
-
     for (const tag of selectedTags) {
       const raw = flat[tag];
       if (raw === undefined) continue;
@@ -249,39 +283,33 @@
       const arr = seriesData[tag] || (seriesData[tag] = []);
       arr.push({ x: ts, y: toNumber(raw) });
 
-      // ventana circular fija
       while (arr.length > MAX_POINTS) arr.shift();
     }
   }
 
   // ============================
-  // WebSocket
+  // Init: restaurar selección guardada
   // ============================
-  function setStatus(text) {
-    if (statusDiv) statusDiv.textContent = text;
+  loadSelection();
+  loadSeriesData();
+
+  // Restaurar datasets en la gráfica si hay tags seleccionados
+  for (const tag of selectedTags) {
+    ensureDataset(tag);
   }
+  updateActiveCount();
+  chart.update("none");
 
-  function connect() {
-    const url = `${WS_BASE}/ws`;
-    console.log("[trends] WS →", url);
-
-    ws = new WebSocket(url);
-
-    ws.onopen = () => {
-      setStatus("WebSocket conectado. Recibiendo datos…");
-      btnConnect.disabled = true;
-      btnDisconnect.disabled = false;
-    };
-
-    ws.onmessage = (evt) => {
-      let parsed;
-      try {
-        parsed = JSON.parse(evt.data);
-      } catch {
-        return;
-      }
-
-      const payload = Array.isArray(parsed) ? parsed[parsed.length - 1] : parsed;
+  // ============================
+  // Suscripción al WebSocket compartido
+  // ============================
+  window.SharedWS.subscribe((event) => {
+    if (event.type === "open") {
+      setConnBadge(true);
+    } else if (event.type === "message") {
+      const payload = Array.isArray(event.data)
+        ? event.data[event.data.length - 1]
+        : event.data;
       const flat = flattenObject(payload);
       currentTags = flat;
 
@@ -291,31 +319,30 @@
       if (nowMs - lastRender > 100) {
         lastRender = nowMs;
         renderTagsList();
-        if (selectedTags.size > 0) chart.update("none");
-        setStatus(`Última actualización: ${new Date().toLocaleTimeString()}`);
+        if (selectedTags.size > 0) {
+          chart.update("none");
+          saveSeriesData(); // 👈 NUEVO: guarda los datos periódicamente
+        }
       }
-    };
+    } else if (event.type === "close") {
+      setConnBadge(false);
+    }
+  });
 
-    ws.onerror = (e) => console.error("[trends] WS error:", e);
-
-    ws.onclose = () => {
-      setStatus("WebSocket desconectado.");
-      btnConnect.disabled = false;
-      btnDisconnect.disabled = true;
-      ws = null;
-    };
+  // Si ya hay datos disponibles al cargar
+  if (window.SharedWS.lastData) {
+    const payload = Array.isArray(window.SharedWS.lastData)
+      ? window.SharedWS.lastData[window.SharedWS.lastData.length - 1]
+      : window.SharedWS.lastData;
+    const flat = flattenObject(payload);
+    currentTags = flat;
+    renderTagsList();
   }
 
-  function disconnect() {
-    if (ws) ws.close();
-    ws = null;
+  // Si ya está conectado
+  if (window.SharedWS.isConnected) {
+    setConnBadge(true);
   }
-
-  // ============================
-  // Eventos UI
-  // ============================
-  btnConnect?.addEventListener("click", connect);
-  btnDisconnect?.addEventListener("click", disconnect);
 
   btnClearChart?.addEventListener("click", () => {
     for (const tag of Object.keys(seriesData)) seriesData[tag] = [];
@@ -323,9 +350,16 @@
       d.data = seriesData[d.label] || [];
     });
     chart.update("none");
+    
+    // 👇 NUEVO: limpiar también el storage
+    sessionStorage.removeItem(STORAGE_KEY_SERIES);
   });
 
+  // ============================
+  // Guardar al salir de la página
+  // ============================
   window.addEventListener("beforeunload", () => {
-    if (ws) ws.close();
+    saveSelection();
+    saveSeriesData();
   });
 })();

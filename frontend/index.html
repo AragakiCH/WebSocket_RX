@@ -1,55 +1,144 @@
 <!doctype html>
-<html lang="en">
+<html lang="es">
   <head>
     <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>ctrlX WebSocket UI</title>
+
+    <!-- Font Awesome para íconos -->
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css"
+    />
+
     <link rel="stylesheet" href="index.css" />
   </head>
 
   <body>
-    <header>
-      <h1>ctrlX WebSocket Demo</h1>
-      <div>
-        <button id="btnConnect" class="btn" disabled>
-          Obtener Datos del PLC
-        </button>
-        <button id="btnDisconnect" class="btn" disabled>Desconectar</button>
-        <button id="btnTrends" class="btn btn-secondary" title="Ver tendencias">
-          📈 Trends
-        </button>
-        <button id="btnLogout" class="btn btn-danger" title="Cerrar sesión">
-          <span class="logout-icon">⏻</span> Cerrar sesión
+    <!-- Sidebar oscuro estilo ctrlX -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <i class="fa-solid fa-microchip"></i>
+        <span class="sidebar-title">ctrlX Panel</span>
+      </div>
+      <nav class="sidebar-nav">
+        <a href="#" class="nav-item active">
+          <i class="fa-solid fa-house"></i>
+          <span>Dashboard</span>
+        </a>
+        <a href="#" class="nav-item" id="navTrends">
+          <i class="fa-solid fa-chart-line"></i>
+          <span>Trends</span>
+        </a>
+      </nav>
+      <div class="sidebar-footer">
+        <button id="btnLogout" class="btn-logout-side" title="Cerrar sesión">
+          <i class="fa-solid fa-power-off"></i>
+          <span>Cerrar sesión</span>
         </button>
       </div>
-    </header>
 
-    <main>
-      <div class="toolbar">
-        <div id="status" class="status">WebSocket desconectado.</div>
-
-        <div class="export-actions">
-          <button id="btnExport" class="btn btn-secondary" disabled>
-            Iniciar export
-          </button>
-          <span id="exportCount" class="export-badge">0</span>
+       <!-- Modal de confirmación de logout -->
+      <div id="logoutModal" class="logout-modal" hidden>
+        <div class="logout-modal-backdrop"></div>
+        <div class="logout-modal-card">
+          <div class="logout-modal-icon">
+            <i class="fa-solid fa-power-off"></i>
+          </div>
+          <h3>¿Cerrar sesión?</h3>
+          <p>
+            Esta seguro de que quiere cerrar sesión?
+          </p>
+          <div class="logout-modal-actions">
+            <button id="btnCancelLogout" class="btn btn-outline">
+              <i class="fa-solid fa-xmark"></i> Cancelar
+            </button>
+            <button id="btnConfirmLogout" class="btn btn-danger">
+              <i class="fa-solid fa-right-from-bracket"></i> Sí, cerrar sesión
+            </button>
+          </div>
         </div>
       </div>
+    </aside>
 
-      <table id="data-table">
-        <thead>
-          <tr>
-            <th>Tag</th>
-            <th>Valor</th>
-            <th class="col-sel">
-              <input type="checkbox" id="chkAll" title="Seleccionar todo" />
-            </th>
-          </tr>
-        </thead>
-        <tbody></tbody>
-      </table>
-    </main>
+    <!-- Contenido principal -->
+    <div class="main-wrapper">
+      <header class="topbar">
+        <div class="topbar-left">
+          <h1>WebSocket Demo</h1>
+          <span class="breadcrumb">
+            <i class="fa-solid fa-house"></i> Home
+            <i class="fa-solid fa-chevron-right tiny"></i>
+            Dashboard
+          </span>
+        </div>
+        <div class="topbar-right">
+          <span id="connStatusBadge" class="conn-badge offline">
+            <i class="fa-solid fa-circle"></i> Desconectado
+          </span>
+        </div>
+      </header>
 
-    <!-- 👇 Guardia: si no hay sesión, redirige al login -->
+      <main>
+        <!-- Card de conexión -->
+        <section class="card">
+          <div class="card-header">
+            <h2><i class="fa-solid fa-plug"></i> Conexión PLC</h2>
+          </div>
+          <div class="card-body">
+            <div class="action-row">
+              <button id="btnConnect" class="btn btn-primary" disabled>
+                <i class="fa-solid fa-play"></i> Obtener datos del PLC
+              </button>
+              <button id="btnDisconnect" class="btn btn-outline" disabled>
+                <i class="fa-solid fa-stop"></i> Desconectar
+              </button>
+              <div id="status" class="status-text">
+                <i class="fa-solid fa-circle-info"></i>
+                <span>WebSocket desconectado.</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Card de variables -->
+        <section class="card">
+          <div class="card-header">
+            <h2><i class="fa-solid fa-database"></i> Variables del PLC</h2>
+            <div class="export-actions">
+              <button id="btnExport" class="btn btn-success" disabled>
+                <i class="fa-solid fa-file-export"></i>
+                <span>Iniciar export</span>
+              </button>
+              <span class="export-badge-wrapper">
+                <i class="fa-solid fa-list-ol"></i>
+                <span id="exportCount" class="export-badge">0</span>
+              </span>
+            </div>
+          </div>
+          <div class="card-body no-padding">
+            <table id="data-table">
+              <thead>
+                <tr>
+                  <th><i class="fa-solid fa-tag"></i> Tag</th>
+                  <th><i class="fa-solid fa-hashtag"></i> Valor</th>
+                  <th class="col-sel">
+                    <input
+                      type="checkbox"
+                      id="chkAll"
+                      title="Seleccionar todo"
+                    />
+                  </th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <!-- Guardia de sesión -->
     <script>
       (function () {
         const parts = location.pathname.split("/").filter(Boolean);
@@ -60,14 +149,16 @@
       })();
     </script>
 
+    <!-- Navegación a Trends -->
     <script>
-      document.getElementById("btnTrends")?.addEventListener("click", () => {
+      document.getElementById("navTrends")?.addEventListener("click", (e) => {
+        e.preventDefault();
         const parts = location.pathname.split("/").filter(Boolean);
         const prefix = parts.length ? `/${parts[0]}` : "";
         location.href = `${prefix}/trends`;
       });
     </script>
-
-    <script defer src="./js/app.js?v=20260220-1"></script>
+    <script defer src="./js/ws-shared.js"></script>
+    <script defer src="./js/app.js?v=20260221-1"></script>
   </body>
 </html>

@@ -31,8 +31,9 @@
   function setError(msg) {
     const { loginErr } = getEls();
     if (!loginErr) return;
-    loginErr.hidden = !msg;
-    loginErr.textContent = msg || "";
+    const span = loginErr.querySelector("#errorText") || loginErr;
+    span.textContent = msg || "";
+    loginErr.style.display = msg ? "flex" : "none";
   }
 
   function setProgramHint(msg, isError = false) {
@@ -51,11 +52,35 @@
   // =========================================================
   // Discover endpoints OPC UA (lo que ya tenías)
   // =========================================================
+  // Helper para actualizar el ícono según el estado del item seleccionado
+  function updateIpStatusIcon(item) {
+    const icon = document.getElementById("ipStatusIcon");
+    if (!icon) return;
+
+    // limpia clases previas
+    icon.classList.remove(
+      "is-ok",
+      "is-bad",
+      "is-unknown",
+      "fa-circle-check",
+      "fa-circle-xmark",
+      "fa-circle-question",
+    );
+
+    if (!item) {
+      icon.classList.add("fa-circle-question", "is-unknown");
+    } else if (item.tcp_ok) {
+      icon.classList.add("fa-circle-check", "is-ok");
+    } else {
+      icon.classList.add("fa-circle-xmark", "is-bad");
+    }
+  }
+
   function labelFor(item) {
-    const ok = item.tcp_ok ? "✅" : "⛔";
+    // ya no metemos ✅/⛔ aquí, lo maneja el ícono FA al lado
     const src = item.source ? ` · ${item.source}` : "";
     const ip = item.ip && item.ip !== item.host ? ` (${item.ip})` : "";
-    return `${ok} ${item.host}${ip}:${item.port}${src}`;
+    return `${item.host}${ip}:${item.port}${src}`;
   }
 
   function populateEndpoints(items) {
@@ -63,6 +88,9 @@
     if (!ipSelect) return;
 
     ipSelect.innerHTML = "";
+
+    // guardamos los items para luego saber qué item está seleccionado
+    ipSelect._itemsByUrl = {};
 
     const optAuto = document.createElement("option");
     optAuto.value = "";
@@ -76,10 +104,28 @@
       const opt = document.createElement("option");
       opt.value = it.url;
       opt.textContent = labelFor(it);
+
+      // pintamos texto del option según el estado (algunos navegadores lo respetan)
+      if (it.tcp_ok) {
+        opt.style.color = "#22c55e";
+        opt.style.fontWeight = "600";
+      } else {
+        opt.style.color = "#ef4444";
+      }
+
+      ipSelect._itemsByUrl[it.url] = it;
       ipSelect.appendChild(opt);
     }
 
     ipSelect.value = good.length > 0 ? good[0].url : "";
+
+    // 👇 actualiza ícono inicial
+    updateIpStatusIcon(ipSelect._itemsByUrl[ipSelect.value]);
+
+    // 👇 listener para actualizar cuando el usuario cambia el select
+    ipSelect.onchange = () => {
+      updateIpStatusIcon(ipSelect._itemsByUrl[ipSelect.value]);
+    };
 
     if (ipHint)
       ipHint.textContent = `Encontrados: ${items.length} · TCP OK: ${good.length}`;
@@ -237,6 +283,18 @@
   // =========================================================
   function bindEvents() {
     const { loginForm, btnDiscoverPrograms } = getEls();
+
+    // 👇 NUEVO: toggle del ojito en la contraseña
+    const togglePassword = document.getElementById("togglePassword");
+    const passInput = document.getElementById("passInput");
+
+    togglePassword?.addEventListener("click", () => {
+      if (!passInput) return;
+      const isPwd = passInput.type === "password";
+      passInput.type = isPwd ? "text" : "password";
+      togglePassword.classList.toggle("fa-eye");
+      togglePassword.classList.toggle("fa-eye-slash");
+    });
 
     btnDiscoverPrograms?.addEventListener("click", discoverPrograms);
 

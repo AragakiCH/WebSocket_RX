@@ -1,145 +1,214 @@
-/* trends.css — estilos específicos de la vista Trends */
+/* ============================================================
+   Trends.css — estilos específicos de la vista Trends
+   Usa las variables y componentes base de index.css
+   ============================================================ */
 
+/* Layout 2 columnas: tags (izq) + gráfica (der) */
 .trends-layout {
   display: grid;
-  grid-template-columns: 320px 1fr;
-  gap: 1rem;
+  grid-template-columns: 340px 1fr;
+  gap: 20px;
   align-items: start;
 }
 
-/* Panel izquierdo: lista de tags con checkbox */
+/* ============================================================
+   PANEL DE TAGS (izquierda)
+   ============================================================ */
 .tags-panel {
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 1rem;
-  max-height: calc(100vh - 200px);
+  /* altura máxima para que scrollee si hay muchos tags */
+  max-height: calc(100vh - 280px);
+}
+
+.tags-body {
+  padding: 12px !important;
   overflow-y: auto;
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  box-shadow: var(--shadow);
+  max-height: calc(100vh - 340px);
 }
 
-.tags-panel h3 {
-  font-size: 0.95rem;
-  font-weight: 700;
-  margin-bottom: 0.8rem;
-  color: rgba(234, 240, 255, 0.85);
-  letter-spacing: 0.4px;
-  text-transform: uppercase;
+.tags-body::-webkit-scrollbar {
+  width: 6px;
 }
 
-.tags-panel .tag-row {
+.tags-body::-webkit-scrollbar-track {
+  background: var(--bg);
+  border-radius: 3px;
+}
+
+.tags-body::-webkit-scrollbar-thumb {
+  background: var(--border-dark);
+  border-radius: 3px;
+}
+
+.tags-body::-webkit-scrollbar-thumb:hover {
+  background: var(--rex-blue);
+}
+
+/* Cada fila de tag con checkbox */
+.tag-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0.55rem 0.7rem;
-  border-radius: 10px;
-  margin-bottom: 0.3rem;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  margin-bottom: 6px;
   border: 1px solid transparent;
-  transition: background 0.15s ease, border-color 0.15s ease;
+  transition: all 0.15s ease;
   cursor: pointer;
+  background: var(--bg);
 }
 
-.tags-panel .tag-row:hover {
-  background: rgba(88, 199, 255, 0.06);
-  border-color: rgba(88, 199, 255, 0.2);
+.tag-row:hover {
+  background: var(--rex-blue-light);
+  border-color: var(--rex-blue);
 }
 
-.tags-panel .tag-row.active {
-  background: rgba(88, 199, 255, 0.10);
-  border-color: rgba(88, 199, 255, 0.35);
+.tag-row.active {
+  background: var(--rex-blue-light);
+  border-color: var(--rex-blue);
+  box-shadow: 0 0 0 2px rgba(0, 123, 192, 0.1);
 }
 
-.tags-panel .tag-row label {
+.tag-row label {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.85rem;
-  color: rgba(88, 199, 255, 0.95);
+  gap: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--rex-blue);
   cursor: pointer;
   flex: 1;
   user-select: none;
 }
 
-.tags-panel .tag-row input[type="checkbox"] {
+.tag-row input[type="checkbox"] {
   width: 16px;
   height: 16px;
-  accent-color: #58c7ff;
+  accent-color: var(--rex-blue);
   cursor: pointer;
 }
 
-.tags-panel .tag-row .tag-value {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.8rem;
-  color: rgba(234, 240, 255, 0.7);
-  margin-left: 0.5rem;
+.tag-row .tag-value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-left: auto;
+  padding-left: 8px;
 }
 
-.tags-panel .empty-state {
+/* Estado vacío cuando no hay tags */
+.empty-state {
   text-align: center;
-  color: var(--muted);
-  padding: 1.5rem 0.5rem;
-  font-size: 0.88rem;
-}
-
-/* Panel derecho: gráfica */
-.chart-panel {
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 1rem;
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  box-shadow: var(--shadow);
-}
-
-.chart-toolbar {
+  color: var(--text-muted);
+  padding: 40px 20px;
+  font-size: 13px;
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: space-between;
-  margin-bottom: 0.8rem;
-  flex-wrap: wrap;
-  gap: 0.6rem;
+  gap: 12px;
 }
 
-.chart-toolbar .info {
-  font-size: 0.88rem;
-  color: var(--muted);
+.empty-state i {
+  font-size: 48px;
+  color: var(--border-dark);
+  opacity: 0.5;
 }
 
-.chart-toolbar .info strong {
-  color: var(--accent);
+.empty-state p {
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* ============================================================
+   PANEL DE GRÁFICA (derecha)
+   ============================================================ */
+.chart-panel {
+  /* se expande según contenido */
 }
 
 .chart-controls {
   display: flex;
-  gap: 0.5rem;
   align-items: center;
+  gap: 12px;
 }
 
-.chart-controls label {
-  font-size: 0.85rem;
-  color: var(--muted);
+.series-info {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 4px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+
+.series-info i {
+  color: var(--rex-blue);
+  font-size: 11px;
+}
+
+.series-info strong {
+  color: var(--rex-blue);
+  font-family: ui-monospace, monospace;
+  font-weight: 700;
+}
+
+.btn-sm {
+  padding: 6px 12px;
+  font-size: 12px;
+}
+
+.chart-body {
+  padding: 16px !important;
 }
 
 .chart-wrapper {
   position: relative;
-  height: 65vh;
-  min-height: 400px;
-  background: rgba(0, 0, 0, 0.15);
+  height: 60vh;
+  min-height: 420px;
+  background: #FAFBFC;
   border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 0.8rem;
+  border-radius: var(--radius-sm);
+  padding: 12px;
 }
 
-/* Responsive */
-@media (max-width: 900px) {
+.chart-wrapper canvas {
+  max-height: 100%;
+}
+
+/* ============================================================
+   Responsive
+   ============================================================ */
+@media (max-width: 1024px) {
   .trends-layout {
     grid-template-columns: 1fr;
   }
+
   .tags-panel {
     max-height: 300px;
+  }
+
+  .tags-body {
+    max-height: 240px;
+  }
+
+  .chart-wrapper {
+    height: 50vh;
+    min-height: 340px;
+  }
+}
+
+@media (max-width: 768px) {
+  .chart-controls {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .chart-wrapper {
+    height: 40vh;
+    min-height: 300px;
   }
 }

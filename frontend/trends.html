@@ -2,64 +2,132 @@
 <html lang="es">
   <head>
     <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>ctrlX · Trends</title>
+
+    <!-- Font Awesome -->
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css"
+    />
+
+    <!-- CSS base (sidebar, topbar, botones, cards) -->
     <link rel="stylesheet" href="index.css" />
+
+    <!-- CSS específico de Trends -->
     <link rel="stylesheet" href="styles/trends.css" />
   </head>
 
   <body>
-    <header>
-      <h1>📈 Trends</h1>
-      <div>
-        <button id="btnConnect" class="btn">Obtener Datos del PLC</button>
-        <button id="btnDisconnect" class="btn" disabled>Desconectar</button>
-        <button id="btnBackDashboard" class="btn btn-secondary">
-          ← Dashboard
+    <!-- Sidebar oscuro estilo ctrlX (igual al dashboard) -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <i class="fa-solid fa-microchip"></i>
+        <span class="sidebar-title">ctrlX Panel</span>
+      </div>
+      <nav class="sidebar-nav">
+        <a href="#" class="nav-item" id="navDashboard">
+          <i class="fa-solid fa-house"></i>
+          <span>Dashboard</span>
+        </a>
+        <a href="#" class="nav-item active">
+          <i class="fa-solid fa-chart-line"></i>
+          <span>Trends</span>
+        </a>
+      </nav>
+      <div class="sidebar-footer">
+        <button id="btnLogout" class="btn-logout-side" title="Cerrar sesión">
+          <i class="fa-solid fa-power-off"></i>
+          <span>Cerrar sesión</span>
         </button>
-        <button id="btnLogout" class="btn btn-danger" title="Cerrar sesión">
-          <span class="logout-icon">⏻</span> Cerrar sesión
-        </button>
       </div>
-    </header>
+    </aside>
 
-    <main>
-      <div class="toolbar">
-        <div id="status" class="status">WebSocket desconectado.</div>
-      </div>
-
-      <div class="trends-layout">
-        <!-- Panel izquierdo: tags -->
-        <div class="tags-panel">
-          <h3>Variables disponibles</h3>
-          <div id="tagsList">
-            <div class="empty-state">
-              Conéctate al PLC para ver los tags disponibles.
-            </div>
-          </div>
+    <!-- Contenido principal -->
+    <div class="main-wrapper">
+      <header class="topbar">
+        <div class="topbar-left">
+          <h1>Tendencias en Tiempo Real</h1>
+          <span class="breadcrumb">
+            <i class="fa-solid fa-house"></i> Home
+            <i class="fa-solid fa-chevron-right tiny"></i>
+            Trends
+          </span>
         </div>
+        <div class="topbar-right">
+          <span id="connStatusBadge" class="conn-badge offline">
+            <i class="fa-solid fa-circle"></i> Desconectado
+          </span>
+        </div>
+      </header>
 
-        <!-- Panel derecho: gráfica -->
-        <div class="chart-panel">
-          <div class="chart-toolbar">
-            <div class="info">
-              Series activas:
-              <strong id="activeCount">0</strong>
+      <main>
+        <!-- Layout 2 columnas: tags + gráfica -->
+        <div class="trends-layout">
+          <!-- Panel izquierdo: lista de tags -->
+          <section class="card tags-panel">
+            <div class="card-header">
+              <h2><i class="fa-solid fa-tags"></i> Variables</h2>
             </div>
-            <div class="chart-controls">
-              <button id="btnClearChart" class="btn btn-secondary">
-                Limpiar
-              </button>
+            <div class="card-body tags-body">
+              <div id="tagsList">
+                <div class="empty-state">
+                  <i class="fa-solid fa-plug-circle-xmark"></i>
+                  <p>Conéctate al PLC para ver las variables disponibles.</p>
+                </div>
+              </div>
             </div>
-          </div>
+          </section>
 
-          <div class="chart-wrapper">
-            <canvas id="trendsChart"></canvas>
-          </div>
+          <!-- Panel derecho: gráfica -->
+          <section class="card chart-panel">
+            <div class="card-header">
+              <h2>
+                <i class="fa-solid fa-chart-area"></i> Gráfica en Tiempo Real
+              </h2>
+              <div class="chart-controls">
+                <span class="series-info">
+                  <i class="fa-solid fa-layer-group"></i>
+                  Series: <strong id="activeCount">0</strong>
+                </span>
+                <button id="btnClearChart" class="btn btn-outline btn-sm">
+                  <i class="fa-solid fa-broom"></i> Limpiar
+                </button>
+              </div>
+            </div>
+            <div class="card-body chart-body">
+              <div class="chart-wrapper">
+                <canvas id="trendsChart"></canvas>
+              </div>
+            </div>
+          </section>
+        </div>
+      </main>
+    </div>
+
+    <!-- Modal de confirmación de logout -->
+    <div id="logoutModal" class="logout-modal" hidden>
+      <div class="logout-modal-backdrop"></div>
+      <div class="logout-modal-card">
+        <div class="logout-modal-icon">
+          <i class="fa-solid fa-power-off"></i>
+        </div>
+        <h3>¿Cerrar sesión?</h3>
+        <p>
+          Esta seguro de que quiere cerrar sesión?
+        </p>
+        <div class="logout-modal-actions">
+          <button id="btnCancelLogout" class="btn btn-outline">
+            <i class="fa-solid fa-xmark"></i> Cancelar
+          </button>
+          <button id="btnConfirmLogout" class="btn btn-danger">
+            <i class="fa-solid fa-right-from-bracket"></i> Sí, cerrar sesión
+          </button>
         </div>
       </div>
-    </main>
+    </div>
 
-    <!-- Guardia de sesión + navegación -->
+    <!-- Guardia de sesión + Logout handler -->
     <script>
       (function () {
         const parts = location.pathname.split("/").filter(Boolean);
@@ -70,25 +138,64 @@
           return;
         }
 
+        // Navegación
         document
-          .getElementById("btnBackDashboard")
-          ?.addEventListener("click", () => {
+          .getElementById("navDashboard")
+          ?.addEventListener("click", (e) => {
+            e.preventDefault();
             location.href = `${prefix}/dashboard`;
           });
 
-        document.getElementById("btnLogout")?.addEventListener("click", () => {
-          if (confirm("¿Seguro que deseas cerrar sesión?")) {
-            sessionStorage.clear();
-            location.replace(`${prefix}/login`);
+        // Logout - ahora usa el modal
+        const btnLogout = document.getElementById("btnLogout");
+        const logoutModal = document.getElementById("logoutModal");
+        const btnCancelLogout = document.getElementById("btnCancelLogout");
+        const btnConfirmLogout = document.getElementById("btnConfirmLogout");
+
+        function showLogoutModal() {
+          if (logoutModal) {
+            logoutModal.hidden = false;
+            btnCancelLogout?.focus();
+          }
+        }
+
+        function hideLogoutModal() {
+          if (logoutModal) {
+            logoutModal.hidden = true;
+          }
+        }
+
+        function doLogout() {
+          hideLogoutModal();
+          sessionStorage.removeItem("trends_selected_tags");
+          sessionStorage.removeItem("trends_series_data");
+          sessionStorage.clear();
+          location.replace(`${prefix}/login`);
+        }
+
+        btnLogout?.addEventListener("click", () => showLogoutModal());
+        btnCancelLogout?.addEventListener("click", () => hideLogoutModal());
+        btnConfirmLogout?.addEventListener("click", () => doLogout());
+
+        logoutModal
+          ?.querySelector(".logout-modal-backdrop")
+          ?.addEventListener("click", () => {
+            hideLogoutModal();
+          });
+
+        document.addEventListener("keydown", (e) => {
+          if (e.key === "Escape" && logoutModal && !logoutModal.hidden) {
+            hideLogoutModal();
           }
         });
       })();
     </script>
 
-    <!-- Chart.js desde CDN -->
+    <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 
     <!-- Lógica de Trends -->
-    <script defer src="./js/trends.js?v=20260220-2"></script>
+    <script defer src="./js/ws-shared.js"></script>
+    <script defer src="./js/trends.js?v=20260221-2"></script>
   </body>
 </html>

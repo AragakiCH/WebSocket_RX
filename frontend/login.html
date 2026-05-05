@@ -4,7 +4,15 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>ctrlX Login</title>
-    <link rel="stylesheet" href="index.css" />
+
+    <!-- Font Awesome para los íconos -->
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css"
+    />
+
+    <!-- CSS propio del login -->
+    <link rel="stylesheet" href="styles/login.css" />
   </head>
   <body>
     <div id="loginOverlay" class="modal-overlay">
@@ -20,8 +28,11 @@
         </div>
 
         <form id="loginForm" class="modal-body">
+          <!-- Usuario -->
           <div class="field">
-            <label for="userInput">Usuario</label>
+            <label for="userInput">
+              <i class="fa-solid fa-user"></i> Usuario
+            </label>
             <input
               id="userInput"
               type="text"
@@ -31,8 +42,11 @@
             />
           </div>
 
+          <!-- Contraseña -->
           <div class="field">
-            <label for="passInput">Contraseña</label>
+            <label for="passInput">
+              <i class="fa-solid fa-lock"></i> Contraseña
+            </label>
             <div class="pass-row">
               <input
                 id="passInput"
@@ -41,24 +55,41 @@
                 autocomplete="current-password"
                 required
               />
+              <i
+                id="togglePassword"
+                class="fa-regular fa-eye toggle-eye"
+                title="Mostrar/ocultar contraseña"
+              ></i>
             </div>
           </div>
 
+          <!-- Endpoint OPC UA -->
+          <!-- Endpoint OPC UA -->
           <div class="field">
-            <label for="ipSelect">Endpoint OPC UA</label>
-            <select id="ipSelect" required>
-              <option value="" disabled selected>Cargando endpoints…</option>
-            </select>
+            <label for="ipSelect">
+              <i class="fa-solid fa-network-wired"></i> Endpoint OPC UA
+            </label>
+            <div class="select-with-status">
+              <i
+                id="ipStatusIcon"
+                class="fa-solid fa-circle-question status-icon"
+              ></i>
+              <select id="ipSelect" required>
+                <option value="" disabled selected>Cargando endpoints…</option>
+              </select>
+            </div>
             <small id="ipHint" class="muted"></small>
           </div>
 
-          <!-- 👇 NUEVO: Programa + botón lupa -->
+          <!-- Programa + botón lupa -->
           <div class="field">
-            <label for="programSelect">Programa</label>
+            <label for="programSelect">
+              <i class="fa-solid fa-microchip"></i> Programa
+            </label>
             <div class="program-row">
               <select id="programSelect" required>
                 <option value="" disabled selected>
-                  Primero pulsa la 🔍 para listar programas
+                  Pulsa la lupa para listar programas
                 </option>
               </select>
               <button
@@ -67,21 +98,28 @@
                 class="btn btn-secondary"
                 title="Buscar programas en el PLC"
               >
-                🔍
+                <i class="fa-solid fa-magnifying-glass"></i>
               </button>
             </div>
             <small id="programHint" class="muted"></small>
           </div>
 
-          <div id="loginErr" class="login-error" hidden></div>
+          <!-- Error -->
+          <div id="loginErr" class="login-error" hidden>
+            <i class="fa-solid fa-circle-exclamation"></i>
+            <span id="errorText"></span>
+          </div>
 
+          <!-- Footer -->
           <div class="modal-footer">
-            <button id="btnLogin" class="btn" type="submit">Ingresar</button>
+            <button id="btnLogin" class="btn" type="submit">
+              <i class="fa-solid fa-right-to-bracket"></i> Ingresar
+            </button>
           </div>
         </form>
       </div>
     </div>
 
-    <script defer src="./js/login.js?v=20260220-2"></script>
+    <script defer src="./js/login.js?v=20260220-3"></script>
   </body>
 </html>
