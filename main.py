@@ -90,6 +90,144 @@ def _tcp_ok_host_or_ip(host: str, port: int) -> tuple[bool, str | None]:
         ok = _probe_tcp_fast(ip, port)
     return bool(ok), ip
     
+def _opcua_cert_paths() -> tuple[str, str]:
+    """Misma ruta de certs que usa frontend/login.py para no regenerar."""
+    if os.name == "nt":
+        base = Path(os.getenv("LOCALAPPDATA", str(Path.home() / "AppData/Local"))) / "PSI-Dashboard" / "opcua"
+    else:
+        base = Path(os.getenv("XDG_DATA_HOME", str(Path.home() / ".local/share"))) / "psi-dashboard" / "opcua"
+    base.mkdir(parents=True, exist_ok=True)
+    return str(base / "client_cert.pem"), str(base / "client_key.pem")
+
+
+def _opcua_ensure_cert_pair(cert_path: str, key_path: str) -> None:
+    """Crea el par de certificados si no existe (mismo formato que login.py)."""
+    if os.path.exists(cert_path) and os.path.exists(key_path):
+        return
+    from cryptography import x509
+    from cryptography.x509.oid import NameOID
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    import datetime
+    Path(os.path.dirname(cert_path)).mkdir(parents=True, exist_ok=True)
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    subject = x509.Name([
+        x509.NameAttribute(NameOID.COUNTRY_NAME, u"PE"),
+        x509.NameAttribute(NameOID.ORGANIZATION_NAME, u"PSI"),
+        x509.NameAttribute(NameOID.COMMON_NAME, u"PSI-Dashboard"),
+    ])
+    cert = (x509.CertificateBuilder()
+            .subject_name(subject).issuer_name(subject)
+            .public_key(key.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(datetime.datetime.utcnow() - datetime.timedelta(days=1))
+            .not_valid_after(datetime.datetime.utcnow() + datetime.timedelta(days=3650))
+            .sign(key, hashes.SHA256()))
+    with open(key_path, "wb") as f:
+        f.write(key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.TraditionalOpenSSL,
+            serialization.NoEncryption()))
+    with open(cert_path, "wb") as f:
+        f.write(cert.public_bytes(serialization.Encoding.PEM))
+
+
+def _opcua_connect_secure(url: str, user: str, password: str, timeout: float = 8.0) -> Client:
+    """
+    Conecta a un OPC UA probando políticas de seguridad en cascada (la misma
+    estrategia que frontend/login.py::_OpcuaCheckWorker._probe).
+    Devuelve un Client ya conectado. El caller debe hacer disconnect().
+    """
+    cert_path, key_path = _opcua_cert_paths()
+    _opcua_ensure_cert_pair(cert_path, key_path)
+
+    attempts = [
+        ("Basic256Sha256", "SignAndEncrypt"),
+        ("Basic256Sha256", "Sign"),
+        ("Basic256",       "SignAndEncrypt"),
+        ("None",           "None"),
+    ]
+
+    last_err: Exception | None = None
+    for pol, mode in attempts:
+        try:
+            c = Client(url, timeout=timeout)
+            c.application_name = "PSI Dashboard"
+            c.application_uri  = "urn:psi:dashboard"
+            if pol != "None":
+                c.set_security_string(f"{pol},{mode},{cert_path},{key_path}")
+            if user:
+                c.set_user(user)
+                c.set_password(password)
+            c.connect()
+            return c
+        except Exception as e:
+            last_err = e
+            print(f"[OPC UA discover] intento {pol}/{mode} -> {type(e).__name__}: {e}", flush=True)
+
+    raise last_err or RuntimeError("No se pudo establecer sesión segura")
+
+
+def _opcua_browse_by_names(root, *names):
+    """Navega por browse_name. Devuelve el nodo o None."""
+    cur = root
+    for n in names:
+        found = None
+        for ch in cur.get_children():
+            try:
+                if ch.get_browse_name().Name == n:
+                    found = ch
+                    break
+            except Exception:
+                continue
+        if not found:
+            return None
+        cur = found
+    return cur
+
+
+def _opcua_browse_sym_programs(url: str, user: str, password: str) -> list[str]:
+    """
+    Conecta a `url`, baja a Objects/Datalayer/plc/app/Application/sym y devuelve
+    la lista de browse_name de los hijos (programas PLC).
+    """
+    c = _opcua_connect_secure(url, user, password)
+    try:
+        root = c.get_root_node()
+        sym_node = _opcua_browse_by_names(
+            root, "Objects", "Datalayer", "plc", "app", "Application", "sym"
+        )
+        if sym_node is None:
+            raise RuntimeError(
+                "Conectó al OPC UA, pero no se encontró el nodo 'sym'. "
+                "¿Publicaste el proyecto desde la configuración de símbolos?"
+            )
+
+        children = sym_node.get_children()
+        if not children:
+            raise RuntimeError("El nodo 'sym' no tiene programas expuestos.")
+
+        programs: list[str] = []
+        for ch in children:
+            try:
+                bn = ch.get_browse_name().Name
+                if bn:
+                    programs.append(bn)
+            except Exception as e:
+                print(f"[OPC UA discover] hijo sin browse_name: {e}", flush=True)
+
+        if not programs:
+            raise RuntimeError(
+                "Se encontró 'sym', pero no hay programas válidos identificables."
+            )
+        return programs
+    finally:
+        try:
+            c.disconnect()
+        except Exception:
+            pass
+
+
 def push_to_log(sample: dict):
     logging.getLogger("uvicorn").info(
         "push_to_log llamado | active=%s | sample_keys=%s",
@@ -137,6 +275,12 @@ class OpcuaLoginIn(BaseModel):
     user: str
     password: str
     url: str | None = None
+
+
+class OpcuaDiscoverProgramsIn(BaseModel):
+    user: str
+    password: str
+    url: str
 
 
 class OpcuaDiscoverItem(BaseModel):
@@ -411,6 +555,40 @@ def opcua_login(body: OpcuaLoginIn, request: Request):
         pass
 
     return {"ok": True, "url": winner}
+
+@router.post("/api/opcua/discover-programs")
+def opcua_discover_programs(body: OpcuaDiscoverProgramsIn):
+    """
+    Recibe credenciales OPC UA y devuelve la lista de programas (hijos de
+    Objects/Datalayer/plc/app/Application/sym) expuestos por el PLC ctrlX.
+    """
+    u_url = (body.url or "").strip()
+    u     = (body.user or "").strip()
+    p     = body.password or ""
+
+    if not u_url:
+        raise HTTPException(400, "Falta la URL OPC UA.")
+    if not u:
+        raise HTTPException(400, "Falta el usuario OPC UA.")
+    if not p:
+        raise HTTPException(400, "Falta la contraseña OPC UA.")
+
+    try:
+        programs = _opcua_browse_sym_programs(u_url, u, p)
+    except RuntimeError as e:
+        # Conectó pero no hay sym / no hay programas
+        raise HTTPException(404, str(e))
+    except Exception as e:
+        # Falló la conexión/auth/seguridad
+        raise HTTPException(502, f"{type(e).__name__}: {e}")
+
+    return {
+        "ok": True,
+        "url": u_url,
+        "user": u,
+        "programs": programs,
+    }
+
 
 @router.get("/api/opcua/endpoints")
 def opcua_endpoints(url: str | None = None):
