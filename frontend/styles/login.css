@@ -149,7 +149,7 @@ body {
 /* Flecha solo en selects sin botón al lado */
 .field:has(select):not(:has(.program-row))::after {
   content: '\f078'; /* fa-chevron-down */
-  font-family: 'Font Awesome 6 Free';
+  font-family: 'Font Awesome 7 Free';
   font-weight: 900;
   position: absolute;
   right: 14px;
@@ -364,3 +364,4 @@ body {
 .status-icon.is-unknown {
   color: var(--rex-label-gray);  /* gris */
 }
+
