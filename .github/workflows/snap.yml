@@ -1,0 +1,65 @@
+name: Build & publish snap (amd64 + arm64)
+
+on:
+  push:
+    branches: [main, master]
+    tags: ["v*"]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        architecture: [amd64, arm64]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build snap (${{ matrix.architecture }})
+        id: build
+        uses: diddlesnaps/snapcraft-multiarch-action@v1
+        with:
+          architecture: ${{ matrix.architecture }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-websocket-rx-${{ matrix.architecture }}
+          path: ${{ steps.build.outputs.snap }}
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    needs: build
+    runs-on: ubuntu-22.04
+    if: startsWith(github.ref, 'refs/tags/v')
+    strategy:
+      fail-fast: false
+      matrix:
+        architecture: [amd64, arm64]
+
+    steps:
+      - name: Download snap (${{ matrix.architecture }})
+        uses: actions/download-artifact@v4
+        with:
+          name: api-websocket-rx-${{ matrix.architecture }}
+          path: dist
+
+      - name: Resolve snap file
+        id: snap
+        run: |
+          file=$(ls dist/*.snap | head -n1)
+          echo "path=$file" >> "$GITHUB_OUTPUT"
+
+      - name: Publish to Snap Store
+        uses: snapcore/action-publish@v1
+        env:
+          SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS }}
+        with:
+          snap: ${{ steps.snap.outputs.path }}
+          release: edge
